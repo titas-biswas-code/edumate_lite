@@ -9,6 +9,7 @@ import '../entities/chunk.dart';
 import '../../objectbox.g.dart' as obx;
 import '../../core/errors/failures.dart';
 import '../../core/errors/exceptions.dart';
+import '../../core/utils/logger.dart';
 
 /// Material Processor
 /// Orchestrates the full pipeline from input to indexed chunks
@@ -29,6 +30,7 @@ class MaterialProcessor {
 
   /// Process a new material
   Stream<ProcessingProgress> process(MaterialInput input) async* {
+    AppLogger.info('🎯 Starting material processing: "${input.title}" (${input.sourceType})');
     Material? material;
 
     try {
@@ -43,6 +45,8 @@ class MaterialProcessor {
 
       final materialId = materialBox.put(material);
       material.id = materialId;
+      
+      AppLogger.debug('✅ Material entity created (ID: $materialId)');
 
       yield ProcessingProgress(
         progress: 0.05,
@@ -161,12 +165,28 @@ class MaterialProcessor {
         material: material,
       );
 
+      AppLogger.info('🧠 Generating embeddings for ${chunkResults.length} chunks');
+
       // Extract all texts for batch processing
       final texts = chunkResults.map((r) => r.content).toList();
+      
+      AppLogger.debug('📊 Text lengths: min=${texts.map((t) => t.length).reduce((a, b) => a < b ? a : b)}, max=${texts.map((t) => t.length).reduce((a, b) => a > b ? a : b)}');
 
       // Generate all embeddings in batch
       // Note: This still runs on main thread but is more efficient than individual calls
       final embeddings = await embeddingProvider.embedBatch(texts);
+      
+      AppLogger.info('✅ Received ${embeddings.length} embeddings from provider');
+      
+      // Validate embedding count matches chunk count
+      if (embeddings.length != chunkResults.length) {
+        AppLogger.error(
+          '❌ Embedding count mismatch: got ${embeddings.length}, expected ${chunkResults.length}'
+        );
+        throw ProcessingException(
+          'Embedding count mismatch: got ${embeddings.length}, expected ${chunkResults.length}',
+        );
+      }
 
       yield ProcessingProgress(
         progress: 0.7,
@@ -176,10 +196,23 @@ class MaterialProcessor {
       );
 
       // Create chunk entities with embeddings
+      AppLogger.debug('🔨 Creating ${chunkResults.length} chunk entities');
+      
       final chunks = <Chunk>[];
       for (var i = 0; i < chunkResults.length; i++) {
         final chunkResult = chunkResults[i];
         final embedding = embeddings[i];
+        
+        // Validate embedding
+        if (embedding.isEmpty) {
+          AppLogger.warning('⚠️  Empty embedding at index $i');
+        }
+        
+        if (embedding.length != embeddingProvider.dimension) {
+          AppLogger.warning(
+            '⚠️  Unexpected embedding dimension at [$i]: ${embedding.length}, expected: ${embeddingProvider.dimension}'
+          );
+        }
 
         final chunk = Chunk(
           content: chunkResult.content,
@@ -194,6 +227,8 @@ class MaterialProcessor {
         chunk.material.target = material;
         chunks.add(chunk);
       }
+      
+      AppLogger.info('✅ Created ${chunks.length} chunk entities');
 
       // Store chunks in vector store (batch)
       yield ProcessingProgress(
@@ -203,13 +238,17 @@ class MaterialProcessor {
         material: material,
       );
 
+      AppLogger.info('💾 Storing ${chunks.length} chunks to vector store');
       await vectorStore.storeBatch(chunks);
+      AppLogger.info('✅ Chunks stored successfully');
 
       // Update material
       material.status = 'completed';
       material.processedAt = DateTime.now();
       material.chunkCount = chunks.length;
       materialBox.put(material);
+
+      AppLogger.info('🎉 Material processing completed: "${material.title}" (${chunks.length} chunks)');
 
       yield ProcessingProgress(
         progress: 1.0,
@@ -219,11 +258,14 @@ class MaterialProcessor {
         result: material,
         material: material,
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      AppLogger.error('❌ Material processing failed: "${input.title}"', e, stackTrace);
+      
       if (material != null) {
         material.status = 'failed';
         material.errorMessage = e.toString();
         materialBox.put(material);
+        AppLogger.debug('Material status updated to failed (ID: ${material.id})');
       }
 
       yield ProcessingProgress(
