@@ -1,0 +1,14 @@
+targets:
+  $default:
+    builders:
+      mobx_codegen|mobx_generator:
+        enabled: true
+        generate_for:
+          - lib/stores/**
+      objectbox_generator|resolver:
+        enabled: true
+        generate_for:
+          - lib/domain/entities/**
+      objectbox_generator|generator:
+        enabled: true
+

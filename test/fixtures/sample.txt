@@ -1,0 +1,23 @@
+Chapter 1: Introduction to Photosynthesis
+
+What is Photosynthesis?
+Photosynthesis is the process by which green plants convert sunlight into chemical energy.
+
+The Equation
+The basic equation for photosynthesis is:
+6CO₂ + 6H₂O + light energy → C₆H₁₂O₆ + 6O₂
+
+Key Components:
+1. Chlorophyll - The green pigment that captures light
+2. Carbon dioxide - Absorbed from air through stomata
+3. Water - Absorbed through roots
+4. Sunlight - Provides energy for the reaction
+
+Example 1: Leaf Structure
+A typical leaf has several layers designed for efficient photosynthesis. The upper epidermis allows light to enter, while the mesophyll cells contain most chloroplasts.
+
+Practice Questions:
+1. What are the raw materials needed for photosynthesis?
+2. What is produced during photosynthesis?
+3. Why are leaves green?
+
