@@ -167,8 +167,8 @@ class _ChatScreenState extends State<ChatScreen> {
       floatingActionButton: FloatingActionButton(
         heroTag: 'new_chat_fab',
         onPressed: _startNewChat,
-        child: const Icon(Icons.add),
         mini: true,
+        child: const Icon(Icons.add),
       ),
     );
   }
@@ -181,7 +181,7 @@ class _ChatScreenState extends State<ChatScreen> {
           Icon(
             Icons.chat_bubble_outline,
             size: 64,
-            color: Theme.of(context).colorScheme.primary.withOpacity(0.5),
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
           ),
           const SizedBox(height: 16),
           Text(
@@ -222,11 +222,14 @@ class _ChatScreenState extends State<ChatScreen> {
               : Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    RadioListTile<bool>(
+                    ListTile(
                       title: const Text('All Materials'),
-                      value: true,
-                      groupValue: chatStore.selectedMaterialIds == null,
-                      onChanged: (value) {
+                      leading: Icon(
+                        chatStore.selectedMaterialIds == null
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_unchecked,
+                      ),
+                      onTap: () {
                         chatStore.setSelectedMaterials(null);
                         Navigator.pop(context);
                       },

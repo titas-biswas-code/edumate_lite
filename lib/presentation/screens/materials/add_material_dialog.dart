@@ -196,7 +196,7 @@ class _AddMaterialDialogState extends State<AddMaterialDialog> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
-              value: _selectedSubject,
+              initialValue: _selectedSubject,
               decoration: const InputDecoration(
                 labelText: 'Subject (Optional)',
                 border: OutlineInputBorder(),
@@ -213,7 +213,7 @@ class _AddMaterialDialogState extends State<AddMaterialDialog> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<int>(
-              value: _selectedGrade,
+              initialValue: _selectedGrade,
               decoration: const InputDecoration(
                 labelText: 'Grade (Optional)',
                 border: OutlineInputBorder(),

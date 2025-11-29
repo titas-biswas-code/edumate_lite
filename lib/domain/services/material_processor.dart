@@ -179,12 +179,7 @@ class MaterialProcessor {
       final chunks = <Chunk>[];
       for (var i = 0; i < chunkResults.length; i++) {
         final chunkResult = chunkResults[i];
-        final embeddingRaw = embeddings[i];
-
-        // Ensure proper type - convert from dynamic/Object? to List<double>
-        final embedding = embeddingRaw is List<double>
-            ? embeddingRaw
-            : List<double>.from(embeddingRaw);
+        final embedding = embeddings[i];
 
         final chunk = Chunk(
           content: chunkResult.content,

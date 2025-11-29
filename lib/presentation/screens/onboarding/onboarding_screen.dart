@@ -336,7 +336,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(
                   context,
-                ).colorScheme.onPrimaryContainer.withOpacity(0.7),
+                ).colorScheme.onPrimaryContainer.withValues(alpha: 0.7),
               ),
             ),
           ),

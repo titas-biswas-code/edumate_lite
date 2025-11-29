@@ -4,6 +4,7 @@ import 'package:edumate_lite/config/service_locator.dart';
 import 'package:edumate_lite/domain/services/material_processor.dart';
 import 'package:edumate_lite/domain/services/rag_engine.dart';
 import 'package:edumate_lite/domain/services/ai_initialization_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_gemma/flutter_gemma.dart';
 
@@ -28,7 +29,7 @@ void main() {
       result.fold(
         (failure) =>
             throw Exception('Failed to initialize AI: ${failure.message}'),
-        (_) => print('✅ AI providers initialized'),
+        (_) => debugPrint('✅ AI providers initialized'),
       );
     });
 
@@ -52,7 +53,7 @@ void main() {
       ProcessingProgress? lastProgress;
       await for (final progress in processor.process(input)) {
         lastProgress = progress;
-        print(
+        debugPrint(
           'Progress: ${progress.stage} - ${(progress.progress * 100).toInt()}%',
         );
 
@@ -72,7 +73,7 @@ void main() {
       expect(lastProgress.result!.status, 'completed');
       expect(lastProgress.result!.chunkCount, greaterThan(0));
 
-      print('✅ Material processed: ${lastProgress.result!.chunkCount} chunks');
+      debugPrint('✅ Material processed: ${lastProgress.result!.chunkCount} chunks');
     });
 
     testWidgets('Search and retrieve from processed material', (tester) async {
@@ -99,7 +100,7 @@ void main() {
             .map((r) => r.content)
             .join();
 
-        print('✅ AI Response: $fullResponse');
+        debugPrint('✅ AI Response: $fullResponse');
         expect(fullResponse, isNotEmpty);
       });
     });
