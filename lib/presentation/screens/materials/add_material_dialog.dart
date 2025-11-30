@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../config/service_locator.dart';
 import '../../../stores/material_store.dart';
 import '../../../domain/services/material_processor.dart';
+import '../../../core/constants/app_constants.dart';
 
 class AddMaterialDialog extends StatefulWidget {
   const AddMaterialDialog({super.key});
@@ -78,6 +79,34 @@ class _AddMaterialDialogState extends State<AddMaterialDialog> {
                   ],
                 ),
                 const SizedBox(height: 16),
+                
+                // File limits info
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'File Limits',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '• PDF: Max ${AppConstants.maxPdfSizeMb}MB, ${AppConstants.maxPdfPages} pages\n'
+                        '• Image: Max ${AppConstants.maxImageSizeMb}MB',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                
+                const SizedBox(height: 16),
 
                 TextButton(
                   onPressed: () => Navigator.pop(context),
@@ -97,28 +126,28 @@ class _AddMaterialDialogState extends State<AddMaterialDialog> {
       children: [
         Observer(
           builder: (_) {
-            final progress = materialStore.currentProgress;
+            final hasJobs = materialStore.processingJobs.isNotEmpty;
+            final firstJob = hasJobs ? materialStore.processingJobs.values.first : null;
+            
             return Column(
               children: [
                 const CircularProgressIndicator(),
                 const SizedBox(height: 16),
                 Text(
-                  progress?.stage ?? 'Processing...',
+                  firstJob?.stage ?? 'Processing...',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
-                if (progress?.message != null) ...[
+                if (firstJob?.message != null) ...[
                   const SizedBox(height: 8),
                   Text(
-                    progress!.message!,
+                    firstJob!.message,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
-                if (progress?.progress != null) ...[
-                  const SizedBox(height: 16),
-                  LinearProgressIndicator(value: progress!.progress),
-                  const SizedBox(height: 8),
-                  Text('${(progress.progress * 100).toInt()}%'),
-                ],
+                const SizedBox(height: 16),
+                LinearProgressIndicator(value: firstJob?.progress ?? 0),
+                const SizedBox(height: 8),
+                Text('${((firstJob?.progress ?? 0) * 100).toInt()}%'),
               ],
             );
           },
@@ -134,10 +163,30 @@ class _AddMaterialDialogState extends State<AddMaterialDialog> {
     );
 
     if (result != null && result.files.single.path != null) {
+      final file = result.files.single;
+      final sizeMb = (file.size / (1024 * 1024));
+      
+      // Validate file size before processing
+      if (sizeMb > AppConstants.maxPdfSizeMb) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'PDF too large: ${sizeMb.toStringAsFixed(1)}MB. '
+                'Max: ${AppConstants.maxPdfSizeMb}MB',
+              ),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+        return;
+      }
+      
       await _showMetadataDialog(
-        filePath: result.files.single.path!,
+        filePath: file.path!,
         sourceType: 'pdf',
-        suggestedTitle: result.files.single.name.replaceAll('.pdf', ''),
+        suggestedTitle: file.name.replaceAll('.pdf', ''),
       );
     }
   }

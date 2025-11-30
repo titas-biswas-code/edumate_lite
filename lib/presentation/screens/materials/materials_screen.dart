@@ -3,6 +3,7 @@ import 'package:flutter_mobx/flutter_mobx.dart';
 import '../../../config/service_locator.dart';
 import '../../../stores/material_store.dart';
 import '../../widgets/material/material_card.dart';
+import '../../widgets/material/processing_jobs_list.dart';
 import 'add_material_dialog.dart';
 
 class MaterialsScreen extends StatefulWidget {
@@ -97,19 +98,32 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
 
           return RefreshIndicator(
             onRefresh: _loadMaterials,
-            child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: materialStore.materials.length,
-              itemBuilder: (context, index) {
-                final material = materialStore.materials[index];
-                return MaterialCard(
-                  material: material,
-                  onDelete: () => _confirmDelete(material.id),
-                  onRetry: material.status == 'failed'
-                      ? () => materialStore.reprocessMaterial(material.id)
-                      : null,
-                );
-              },
+            child: CustomScrollView(
+              slivers: [
+                // Processing jobs at the top
+                SliverToBoxAdapter(
+                  child: const ProcessingJobsList(),
+                ),
+                // Materials list
+                SliverPadding(
+                  padding: const EdgeInsets.all(16),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final material = materialStore.materials[index];
+                        return MaterialCard(
+                          material: material,
+                          onDelete: () => _confirmDelete(material.id),
+                          onRetry: material.status == 'failed'
+                              ? () => materialStore.reprocessMaterial(material.id)
+                              : null,
+                        );
+                      },
+                      childCount: materialStore.materials.length,
+                    ),
+                  ),
+                ),
+              ],
             ),
           );
         },

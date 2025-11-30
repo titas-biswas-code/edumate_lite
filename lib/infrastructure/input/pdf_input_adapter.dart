@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import '../../domain/interfaces/input_source.dart';
 import '../../core/errors/exceptions.dart';
+import '../../core/constants/app_constants.dart';
+import '../../core/utils/logger.dart';
 
 /// PDF input adapter using Syncfusion PDF
 class PdfInputAdapter implements InputSource {
@@ -56,6 +58,23 @@ class PdfInputAdapter implements InputSource {
         return;
       }
 
+      // Validate file size
+      final fileSizeBytes = await file.length();
+      final fileSizeMb = fileSizeBytes / (1024 * 1024);
+      
+      AppLogger.info('📄 PDF size: ${fileSizeMb.toStringAsFixed(1)}MB');
+      
+      if (fileSizeMb > AppConstants.maxPdfSizeMb) {
+        final error = 'PDF too large: ${fileSizeMb.toStringAsFixed(1)}MB. '
+            'Max allowed: ${AppConstants.maxPdfSizeMb}MB';
+        AppLogger.error('❌ $error');
+        yield ExtractionProgress(
+          progress: 0,
+          error: error,
+        );
+        return;
+      }
+
       // Load PDF document
       yield ExtractionProgress(
         progress: 0.1,
@@ -66,6 +85,22 @@ class PdfInputAdapter implements InputSource {
       final PdfDocument document = PdfDocument(inputBytes: bytes);
 
       final pageCount = document.pages.count;
+      
+      AppLogger.info('📄 PDF pages: $pageCount');
+      
+      // Validate page count
+      if (pageCount > AppConstants.maxPdfPages) {
+        final error = 'PDF too long: $pageCount pages. '
+            'Max allowed: ${AppConstants.maxPdfPages} pages';
+        AppLogger.error('❌ $error');
+        document.dispose();
+        yield ExtractionProgress(
+          progress: 0,
+          error: error,
+        );
+        return;
+      }
+      
       final extractedPages = <String>[];
 
       // Extract text from each page

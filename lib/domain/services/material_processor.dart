@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:dartz/dartz.dart';
+import 'package:flutter/foundation.dart';
 import '../interfaces/input_source.dart';
 import '../interfaces/chunking_strategy.dart';
 import '../interfaces/embedding_provider.dart';
@@ -10,6 +11,30 @@ import '../../objectbox.g.dart' as obx;
 import '../../core/errors/failures.dart';
 import '../../core/errors/exceptions.dart';
 import '../../core/utils/logger.dart';
+import '../../infrastructure/chunking/educational_chunking_strategy.dart';
+
+/// Parameters for chunking in compute isolate
+class _ChunkParams {
+  final String text;
+  final String sourceType;
+  final String? subject;
+  
+  _ChunkParams({
+    required this.text,
+    required this.sourceType,
+    this.subject,
+  });
+}
+
+/// Top-level function for compute() - runs chunking in isolate
+Future<List<ChunkResult>> _performChunking(_ChunkParams params) async {
+  // Create new strategy instance in isolate
+  final strategy = EducationalChunkingStrategy();
+  return await strategy.chunk(params.text, {
+    'sourceType': params.sourceType,
+    'subject': params.subject,
+  });
+}
 
 /// Material Processor
 /// Orchestrates the full pipeline from input to indexed chunks
@@ -28,7 +53,7 @@ class MaterialProcessor {
     required this.materialBox,
   });
 
-  /// Process a new material
+  /// Process a new material with chunking in background isolate
   Stream<ProcessingProgress> process(MaterialInput input) async* {
     AppLogger.info('🎯 Starting material processing: "${input.title}" (${input.sourceType})');
     Material? material;
@@ -45,7 +70,7 @@ class MaterialProcessor {
 
       final materialId = materialBox.put(material);
       material.id = materialId;
-      
+
       AppLogger.debug('✅ Material entity created (ID: $materialId)');
 
       yield ProcessingProgress(
@@ -123,7 +148,7 @@ class MaterialProcessor {
         return;
       }
 
-      // Chunk content
+      // Chunk content in background isolate to prevent UI freeze
       yield ProcessingProgress(
         progress: 0.3,
         stage: 'chunking',
@@ -131,10 +156,18 @@ class MaterialProcessor {
         material: material,
       );
 
-      final chunkResults = await chunkingStrategy.chunk(extractedText, {
-        'sourceType': input.sourceType,
-        'subject': input.subject,
-      });
+      AppLogger.info('🔪 Chunking ${extractedText.length} chars in background isolate');
+      
+      final chunkResults = await compute<_ChunkParams, List<ChunkResult>>(
+        _performChunking,
+        _ChunkParams(
+          text: extractedText,
+          sourceType: input.sourceType,
+          subject: input.subject,
+        ),
+      );
+      
+      AppLogger.info('✅ Chunking completed, got ${chunkResults.length} chunks');
 
       if (chunkResults.isEmpty) {
         material.status = 'failed';
@@ -169,19 +202,19 @@ class MaterialProcessor {
 
       // Extract all texts for batch processing
       final texts = chunkResults.map((r) => r.content).toList();
-      
-      AppLogger.debug('📊 Text lengths: min=${texts.map((t) => t.length).reduce((a, b) => a < b ? a : b)}, max=${texts.map((t) => t.length).reduce((a, b) => a > b ? a : b)}');
+
+      AppLogger.debug(
+          '📊 Text lengths: min=${texts.map((t) => t.length).reduce((a, b) => a < b ? a : b)}, max=${texts.map((t) => t.length).reduce((a, b) => a > b ? a : b)}');
 
       // Generate all embeddings in batch
-      // Note: This still runs on main thread but is more efficient than individual calls
       final embeddings = await embeddingProvider.embedBatch(texts);
-      
+
       AppLogger.info('✅ Received ${embeddings.length} embeddings from provider');
-      
+
       // Validate embedding count matches chunk count
       if (embeddings.length != chunkResults.length) {
         AppLogger.error(
-          '❌ Embedding count mismatch: got ${embeddings.length}, expected ${chunkResults.length}'
+          '❌ Embedding count mismatch: got ${embeddings.length}, expected ${chunkResults.length}',
         );
         throw ProcessingException(
           'Embedding count mismatch: got ${embeddings.length}, expected ${chunkResults.length}',
@@ -197,20 +230,20 @@ class MaterialProcessor {
 
       // Create chunk entities with embeddings
       AppLogger.debug('🔨 Creating ${chunkResults.length} chunk entities');
-      
+
       final chunks = <Chunk>[];
       for (var i = 0; i < chunkResults.length; i++) {
         final chunkResult = chunkResults[i];
         final embedding = embeddings[i];
-        
+
         // Validate embedding
         if (embedding.isEmpty) {
           AppLogger.warning('⚠️  Empty embedding at index $i');
         }
-        
+
         if (embedding.length != embeddingProvider.dimension) {
           AppLogger.warning(
-            '⚠️  Unexpected embedding dimension at [$i]: ${embedding.length}, expected: ${embeddingProvider.dimension}'
+            '⚠️  Unexpected embedding dimension at [$i]: ${embedding.length}, expected: ${embeddingProvider.dimension}',
           );
         }
 
@@ -227,7 +260,7 @@ class MaterialProcessor {
         chunk.material.target = material;
         chunks.add(chunk);
       }
-      
+
       AppLogger.info('✅ Created ${chunks.length} chunk entities');
 
       // Store chunks in vector store (batch)
@@ -248,7 +281,8 @@ class MaterialProcessor {
       material.chunkCount = chunks.length;
       materialBox.put(material);
 
-      AppLogger.info('🎉 Material processing completed: "${material.title}" (${chunks.length} chunks)');
+      AppLogger.info(
+          '🎉 Material processing completed: "${material.title}" (${chunks.length} chunks)');
 
       yield ProcessingProgress(
         progress: 1.0,
@@ -259,8 +293,11 @@ class MaterialProcessor {
         material: material,
       );
     } catch (e, stackTrace) {
-      AppLogger.error('❌ Material processing failed: "${input.title}"', e, stackTrace);
-      
+      AppLogger.error(
+          '❌ Material processing failed: "${input.title}"',
+          e,
+          stackTrace);
+
       if (material != null) {
         material.status = 'failed';
         material.errorMessage = e.toString();

@@ -1,5 +1,6 @@
 import 'package:mobx/mobx.dart';
 import '../domain/entities/material.dart';
+import 'processing_state.dart';
 import '../domain/services/material_processor.dart';
 import '../infrastructure/database/objectbox.dart';
 import '../config/service_locator.dart';
@@ -26,11 +27,10 @@ abstract class MaterialStoreBase with Store {
     error = null;
   }
 
+  /// Map of ongoing processing jobs
+  /// Key: temp ID, Value: ProcessingState
   @observable
-  ProcessingProgress? currentProgress;
-
-  @observable
-  Material? processingMaterial;
+  ObservableMap<int, ProcessingState> processingJobs = ObservableMap();
 
   @action
   Future<void> loadMaterials() async {
@@ -49,27 +49,45 @@ abstract class MaterialStoreBase with Store {
 
   @action
   Future<void> processMaterial(MaterialInput input) async {
-    isLoading = true;
     error = null;
-    currentProgress = null;
-    processingMaterial = null;
+
+    // Create temp material for tracking
+    final tempMaterial = Material(
+      title: input.title,
+      sourceType: input.sourceType,
+      subject: input.subject,
+      gradeLevel: input.gradeLevel,
+      status: 'processing',
+    );
+    
+    // Create unique temp ID
+    final tempId = DateTime.now().millisecondsSinceEpoch;
+    
+    // Create processing state
+    final state = ProcessingState(tempMaterial, tempId);
+    processingJobs[tempId] = state;
 
     try {
-      // Process in background - don't block UI
+      // Process in background - UI stays responsive
       _materialProcessor.process(input).listen(
         (progress) {
-          currentProgress = progress;
-          processingMaterial = progress.material;
+          // Update state
+          state.updateProgress(
+            progress.progress,
+            progress.message ?? '',
+            progress.stage,
+          );
 
           if (progress.error != null) {
+            state.setError(progress.error!);
             error = progress.error;
-            isLoading = false;
-            currentProgress = null;
             return;
           }
 
           if (progress.isComplete && progress.result != null) {
-            // Add to list
+            state.complete();
+            
+            // Add completed material to list
             final existingIndex = materials.indexWhere((m) => m.id == progress.result!.id);
             if (existingIndex >= 0) {
               materials[existingIndex] = progress.result!;
@@ -77,24 +95,23 @@ abstract class MaterialStoreBase with Store {
               materials.add(progress.result!);
             }
             
-            isLoading = false;
-            currentProgress = null;
-            processingMaterial = null;
+            // Remove from processing jobs after small delay for UI feedback
+            Future.delayed(const Duration(milliseconds: 500), () {
+              processingJobs.remove(tempId);
+            });
           }
         },
         onError: (e) {
+          state.setError('Processing failed: $e');
           error = 'Processing failed: $e';
-          isLoading = false;
-          currentProgress = null;
         },
         cancelOnError: false,
       );
       
       // Return immediately - processing continues in background
     } catch (e) {
+      state.setError('Processing failed: $e');
       error = 'Processing failed: $e';
-      isLoading = false;
-      currentProgress = null;
     }
   }
 
@@ -119,35 +136,55 @@ abstract class MaterialStoreBase with Store {
 
   @action
   Future<void> reprocessMaterial(int materialId) async {
-    isLoading = true;
     error = null;
-    currentProgress = null;
+    
+    // Get material
+    final material = materials.firstWhere((m) => m.id == materialId);
+    
+    // Create temp ID
+    final tempId = DateTime.now().millisecondsSinceEpoch;
+    
+    // Create processing state
+    final state = ProcessingState(material, tempId);
+    processingJobs[tempId] = state;
 
     try {
-      await for (final progress in _materialProcessor.reprocess(materialId)) {
-        currentProgress = progress;
+      _materialProcessor.reprocess(materialId).listen(
+        (progress) {
+          state.updateProgress(
+            progress.progress,
+            progress.message ?? '',
+            progress.stage,
+          );
 
-        if (progress.error != null) {
-          error = progress.error;
-          isLoading = false;
-          return;
-        }
-
-        if (progress.isComplete && progress.result != null) {
-          final index = materials.indexWhere((m) => m.id == progress.result!.id);
-          if (index >= 0) {
-            materials[index] = progress.result!;
+          if (progress.error != null) {
+            state.setError(progress.error!);
+            error = progress.error;
+            return;
           }
-          
-          isLoading = false;
-          currentProgress = null;
-          return;
-        }
-      }
+
+          if (progress.isComplete && progress.result != null) {
+            state.complete();
+            
+            final index = materials.indexWhere((m) => m.id == progress.result!.id);
+            if (index >= 0) {
+              materials[index] = progress.result!;
+            }
+            
+            Future.delayed(const Duration(milliseconds: 500), () {
+              processingJobs.remove(tempId);
+            });
+          }
+        },
+        onError: (e) {
+          state.setError('Reprocessing failed: $e');
+          error = 'Reprocessing failed: $e';
+        },
+        cancelOnError: false,
+      );
     } catch (e) {
+      state.setError('Reprocessing failed: $e');
       error = 'Reprocessing failed: $e';
-      isLoading = false;
-      currentProgress = null;
     }
   }
 
@@ -166,5 +203,11 @@ abstract class MaterialStoreBase with Store {
   @computed
   int get totalChunks =>
       materials.fold(0, (sum, m) => sum + m.chunkCount);
+  
+  @computed
+  bool get hasProcessingJobs => processingJobs.isNotEmpty;
+  
+  @computed
+  int get processingJobsCount => processingJobs.length;
 }
 

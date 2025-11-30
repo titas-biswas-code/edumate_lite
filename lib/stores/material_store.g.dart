@@ -40,6 +40,21 @@ mixin _$MaterialStore on MaterialStoreBase, Store {
     () => super.totalChunks,
     name: 'MaterialStoreBase.totalChunks',
   )).value;
+  Computed<bool>? _$hasProcessingJobsComputed;
+
+  @override
+  bool get hasProcessingJobs => (_$hasProcessingJobsComputed ??= Computed<bool>(
+    () => super.hasProcessingJobs,
+    name: 'MaterialStoreBase.hasProcessingJobs',
+  )).value;
+  Computed<int>? _$processingJobsCountComputed;
+
+  @override
+  int get processingJobsCount =>
+      (_$processingJobsCountComputed ??= Computed<int>(
+        () => super.processingJobsCount,
+        name: 'MaterialStoreBase.processingJobsCount',
+      )).value;
 
   late final _$materialsAtom = Atom(
     name: 'MaterialStoreBase.materials',
@@ -95,39 +110,21 @@ mixin _$MaterialStore on MaterialStoreBase, Store {
     });
   }
 
-  late final _$currentProgressAtom = Atom(
-    name: 'MaterialStoreBase.currentProgress',
+  late final _$processingJobsAtom = Atom(
+    name: 'MaterialStoreBase.processingJobs',
     context: context,
   );
 
   @override
-  ProcessingProgress? get currentProgress {
-    _$currentProgressAtom.reportRead();
-    return super.currentProgress;
+  ObservableMap<int, ProcessingState> get processingJobs {
+    _$processingJobsAtom.reportRead();
+    return super.processingJobs;
   }
 
   @override
-  set currentProgress(ProcessingProgress? value) {
-    _$currentProgressAtom.reportWrite(value, super.currentProgress, () {
-      super.currentProgress = value;
-    });
-  }
-
-  late final _$processingMaterialAtom = Atom(
-    name: 'MaterialStoreBase.processingMaterial',
-    context: context,
-  );
-
-  @override
-  Material? get processingMaterial {
-    _$processingMaterialAtom.reportRead();
-    return super.processingMaterial;
-  }
-
-  @override
-  set processingMaterial(Material? value) {
-    _$processingMaterialAtom.reportWrite(value, super.processingMaterial, () {
-      super.processingMaterial = value;
+  set processingJobs(ObservableMap<int, ProcessingState> value) {
+    _$processingJobsAtom.reportWrite(value, super.processingJobs, () {
+      super.processingJobs = value;
     });
   }
 
@@ -198,12 +195,13 @@ mixin _$MaterialStore on MaterialStoreBase, Store {
 materials: ${materials},
 isLoading: ${isLoading},
 error: ${error},
-currentProgress: ${currentProgress},
-processingMaterial: ${processingMaterial},
+processingJobs: ${processingJobs},
 completedMaterials: ${completedMaterials},
 failedMaterials: ${failedMaterials},
 processingMaterials: ${processingMaterials},
-totalChunks: ${totalChunks}
+totalChunks: ${totalChunks},
+hasProcessingJobs: ${hasProcessingJobs},
+processingJobsCount: ${processingJobsCount}
     ''';
   }
 }
