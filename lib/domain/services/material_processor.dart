@@ -11,6 +11,7 @@ import '../../objectbox.g.dart' as obx;
 import '../../core/errors/failures.dart';
 import '../../core/errors/exceptions.dart';
 import '../../core/utils/logger.dart';
+import '../../core/constants/app_constants.dart';
 import '../../infrastructure/chunking/educational_chunking_strategy.dart';
 
 /// Parameters for chunking in compute isolate
@@ -103,10 +104,12 @@ class MaterialProcessor {
         material: material,
       );
 
-      String? extractedText;
-      await for (final extractProgress in adapter.extractContent(
-        input.content,
-      )) {
+      // INCREMENTAL PROCESSING: Process and store batches as they arrive
+      final textBuffer = StringBuffer();
+      int totalChunksProcessed = 0;
+      int sequenceIndex = 0;
+      
+      await for (final extractProgress in adapter.extractContent(input.content)) {
         if (extractProgress.error != null) {
           material.status = 'failed';
           material.errorMessage = extractProgress.error;
@@ -121,10 +124,6 @@ class MaterialProcessor {
           return;
         }
 
-        if (extractProgress.extractedText != null) {
-          extractedText = extractProgress.extractedText;
-        }
-
         // Map extraction progress to 0.1-0.3
         yield ProcessingProgress(
           progress: 0.1 + (extractProgress.progress * 0.2),
@@ -132,9 +131,96 @@ class MaterialProcessor {
           message: extractProgress.currentPage ?? 'Extracting...',
           material: material,
         );
-      }
 
-      if (extractedText == null || extractedText.trim().isEmpty) {
+        // Process batch of extracted text immediately
+        if (extractProgress.extractedText != null && 
+            extractProgress.extractedText!.trim().isNotEmpty) {
+          
+          final batchText = extractProgress.extractedText!;
+          textBuffer.write(batchText);
+          
+          AppLogger.debug('🔪 Chunking batch (${batchText.length} chars)');
+          
+          // Chunk this batch
+          final batchChunkResults = await compute<_ChunkParams, List<ChunkResult>>(
+            _performChunking,
+            _ChunkParams(
+              text: batchText,
+              sourceType: input.sourceType,
+              subject: input.subject,
+            ),
+          );
+          
+          AppLogger.debug('✅ Got ${batchChunkResults.length} chunks from batch');
+          
+          // Generate embeddings for this batch in smaller groups
+          if (batchChunkResults.isNotEmpty) {
+            // Process in smaller batches for better UX and stability
+            final texts = batchChunkResults.map((r) => r.content).toList();
+            
+            for (int i = 0; i < texts.length; i += AppConstants.embeddingBatchSize) {
+              final end = (i + AppConstants.embeddingBatchSize < texts.length) 
+                  ? i + AppConstants.embeddingBatchSize 
+                  : texts.length;
+              final batchTexts = texts.sublist(i, end);
+              final batchNum = (i ~/ AppConstants.embeddingBatchSize) + 1;
+              final totalBatches = (texts.length / AppConstants.embeddingBatchSize).ceil();
+              
+              // Update progress before embedding
+              yield ProcessingProgress(
+                progress: 0.3 + (extractProgress.progress * 0.2),
+                stage: 'embedding',
+                message: 'Embedding batch $batchNum/$totalBatches (${batchTexts.length} chunks)...',
+                material: material,
+              );
+              
+              AppLogger.debug(
+                '🔢 Embedding batch $batchNum/$totalBatches: '
+                '${batchTexts.length} chunks [${i + 1}-$end/${texts.length}]'
+              );
+              
+              final batchEmbeddings = await embeddingProvider.embedBatch(batchTexts);
+              
+              // Create and store chunk entities immediately (free memory)
+              final chunksToStore = <Chunk>[];
+              for (var j = 0; j < batchTexts.length; j++) {
+                final chunkResult = batchChunkResults[i + j];
+                final embedding = batchEmbeddings[j];
+                
+                final chunk = Chunk(
+                  content: chunkResult.content,
+                  embedding: embedding,
+                  pageNumber: chunkResult.pageNumber,
+                  sectionIndex: chunkResult.sectionIndex,
+                  sequenceIndex: sequenceIndex++,
+                  chunkType: chunkResult.chunkType,
+                  metadataJson: chunkResult.metadata.toString(),
+                );
+                
+                chunk.material.target = material;
+                chunksToStore.add(chunk);
+              }
+              
+              // Store immediately after each batch (better memory management)
+              AppLogger.debug('💾 Storing ${chunksToStore.length} chunks from batch $batchNum');
+              await vectorStore.storeBatch(chunksToStore);
+              
+              totalChunksProcessed += chunksToStore.length;
+              
+              // Update progress after storing
+              yield ProcessingProgress(
+                progress: 0.3 + (extractProgress.progress * 0.2),
+                stage: 'embedding',
+                message: 'Stored batch $batchNum/$totalBatches (${totalChunksProcessed} total chunks)',
+                material: material,
+              );
+            }
+          }
+        }
+      }
+      
+      // Validate we got some content
+      if (totalChunksProcessed == 0) {
         material.status = 'failed';
         material.errorMessage = 'No content extracted';
         materialBox.put(material);
@@ -147,147 +233,24 @@ class MaterialProcessor {
         );
         return;
       }
-
-      // Chunk content in background isolate to prevent UI freeze
-      yield ProcessingProgress(
-        progress: 0.3,
-        stage: 'chunking',
-        message: 'Chunking content...',
-        material: material,
-      );
-
-      AppLogger.info('🔪 Chunking ${extractedText.length} chars in background isolate');
       
-      final chunkResults = await compute<_ChunkParams, List<ChunkResult>>(
-        _performChunking,
-        _ChunkParams(
-          text: extractedText,
-          sourceType: input.sourceType,
-          subject: input.subject,
-        ),
-      );
-      
-      AppLogger.info('✅ Chunking completed, got ${chunkResults.length} chunks');
+      AppLogger.info('✅ Total chunks processed and stored: $totalChunksProcessed');
 
-      if (chunkResults.isEmpty) {
-        material.status = 'failed';
-        material.errorMessage = 'No chunks generated';
-        materialBox.put(material);
+      // All chunks already stored incrementally per-batch above
 
-        yield ProcessingProgress(
-          progress: 0,
-          stage: 'chunking_failed',
-          error: 'Failed to chunk content',
-          material: material,
-        );
-        return;
-      }
-
-      yield ProcessingProgress(
-        progress: 0.4,
-        stage: 'chunking',
-        message: 'Created ${chunkResults.length} chunks',
-        material: material,
-      );
-
-      // Generate embeddings in batch (more efficient)
-      yield ProcessingProgress(
-        progress: 0.4,
-        stage: 'embedding',
-        message: 'Generating embeddings for ${chunkResults.length} chunks...',
-        material: material,
-      );
-
-      AppLogger.info('🧠 Generating embeddings for ${chunkResults.length} chunks');
-
-      // Extract all texts for batch processing
-      final texts = chunkResults.map((r) => r.content).toList();
-
-      AppLogger.debug(
-          '📊 Text lengths: min=${texts.map((t) => t.length).reduce((a, b) => a < b ? a : b)}, max=${texts.map((t) => t.length).reduce((a, b) => a > b ? a : b)}');
-
-      // Generate all embeddings in batch
-      final embeddings = await embeddingProvider.embedBatch(texts);
-
-      AppLogger.info('✅ Received ${embeddings.length} embeddings from provider');
-
-      // Validate embedding count matches chunk count
-      if (embeddings.length != chunkResults.length) {
-        AppLogger.error(
-          '❌ Embedding count mismatch: got ${embeddings.length}, expected ${chunkResults.length}',
-        );
-        throw ProcessingException(
-          'Embedding count mismatch: got ${embeddings.length}, expected ${chunkResults.length}',
-        );
-      }
-
-      yield ProcessingProgress(
-        progress: 0.7,
-        stage: 'embedding',
-        message: 'Creating chunks...',
-        material: material,
-      );
-
-      // Create chunk entities with embeddings
-      AppLogger.debug('🔨 Creating ${chunkResults.length} chunk entities');
-
-      final chunks = <Chunk>[];
-      for (var i = 0; i < chunkResults.length; i++) {
-        final chunkResult = chunkResults[i];
-        final embedding = embeddings[i];
-
-        // Validate embedding
-        if (embedding.isEmpty) {
-          AppLogger.warning('⚠️  Empty embedding at index $i');
-        }
-
-        if (embedding.length != embeddingProvider.dimension) {
-          AppLogger.warning(
-            '⚠️  Unexpected embedding dimension at [$i]: ${embedding.length}, expected: ${embeddingProvider.dimension}',
-          );
-        }
-
-        final chunk = Chunk(
-          content: chunkResult.content,
-          embedding: embedding,
-          pageNumber: chunkResult.pageNumber,
-          sectionIndex: chunkResult.sectionIndex,
-          sequenceIndex: i,
-          chunkType: chunkResult.chunkType,
-          metadataJson: chunkResult.metadata.toString(),
-        );
-
-        chunk.material.target = material;
-        chunks.add(chunk);
-      }
-
-      AppLogger.info('✅ Created ${chunks.length} chunk entities');
-
-      // Store chunks in vector store (batch)
-      yield ProcessingProgress(
-        progress: 0.8,
-        stage: 'storing',
-        message: 'Storing chunks...',
-        material: material,
-      );
-
-      AppLogger.info('💾 Storing ${chunks.length} chunks to vector store');
-      await vectorStore.storeBatch(chunks);
-      AppLogger.info('✅ Chunks stored successfully');
-
-      // Update material
+      // Update material with final count
       material.status = 'completed';
       material.processedAt = DateTime.now();
-      material.chunkCount = chunks.length;
+      material.chunkCount = totalChunksProcessed;
       materialBox.put(material);
 
       AppLogger.info(
-          '🎉 Material processing completed: "${material.title}" (${chunks.length} chunks)');
+          '🎉 Material processing completed: "${material.title}" ($totalChunksProcessed chunks)');
 
       yield ProcessingProgress(
         progress: 1.0,
         stage: 'completed',
-        message: 'Processing complete',
+        message: 'Processed $totalChunksProcessed chunks',
         isComplete: true,
         result: material,
         material: material,

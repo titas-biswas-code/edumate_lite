@@ -26,50 +26,200 @@ class EducationalChunkingStrategy implements ChunkingStrategy {
     final results = <ChunkResult>[];
     final pageNumber = metadata['pageNumber'] as int?;
     
-    // Split into sections by double newlines
-    final sections = _splitIntoSections(text);
+    // Split into paragraphs first (single newline = paragraph boundary)
+    final paragraphs = _splitIntoParagraphs(text);
     
+    var currentChunkParagraphs = <String>[];
+    var currentWords = 0;
     var sequenceIndex = 0;
-    for (var i = 0; i < sections.length; i++) {
-      final section = sections[i];
+    
+    for (var i = 0; i < paragraphs.length; i++) {
+      final paragraph = paragraphs[i];
+      final paragraphWords = paragraph.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
       
-      // Detect chunk type
-      final chunkType = _detectChunkType(section);
-      
-      // Check if section needs splitting
-      final tokens = TokenEstimator.estimate(section);
-      
-      if (tokens <= AppConstants.maxChunkSizeTokens) {
-        // Section fits in one chunk
-        results.add(ChunkResult(
-          content: section.trim(),
-          chunkType: chunkType,
-          pageNumber: pageNumber,
-          sectionIndex: sequenceIndex++,
-          metadata: {'original_length': section.length},
-        ));
-      } else {
-        // Split large section into smaller chunks with overlap
-        final subChunks = _splitLargeSection(
-          section,
-          chunkType,
-          pageNumber,
-          sequenceIndex,
-        );
-        results.addAll(subChunks);
-        sequenceIndex += subChunks.length;
+      // Case 1: Single paragraph exceeds hard limit - must split by sentences
+      if (paragraphWords > AppConstants.maxChunkWords) {
+        // Save current chunk if any
+        if (currentChunkParagraphs.isNotEmpty) {
+          final chunkContent = currentChunkParagraphs.join('\n\n').trim();
+          results.add(_createChunkResult(chunkContent, pageNumber, sequenceIndex++));
+          currentChunkParagraphs.clear();
+          currentWords = 0;
+        }
+        
+        // Split this paragraph by sentences (never split a sentence)
+        final sentenceChunks = _splitParagraphBySentences(paragraph, pageNumber, sequenceIndex);
+        results.addAll(sentenceChunks);
+        sequenceIndex += sentenceChunks.length;
+        continue;
       }
+      
+      // Case 2: Adding this paragraph would exceed target - save current chunk
+      if (currentWords + paragraphWords > AppConstants.targetChunkWords && currentChunkParagraphs.isNotEmpty) {
+        final chunkContent = currentChunkParagraphs.join('\n\n').trim();
+        results.add(_createChunkResult(chunkContent, pageNumber, sequenceIndex++));
+        
+        // Start new chunk with overlap (last paragraph if within overlap limit)
+        currentChunkParagraphs.clear();
+        currentWords = 0;
+        
+        if (i > 0) {
+          final prevPara = paragraphs[i - 1];
+          final prevWords = prevPara.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+          if (prevWords <= AppConstants.chunkOverlapWords) {
+            currentChunkParagraphs.add(prevPara);
+            currentWords = prevWords;
+          }
+        }
+      }
+      
+      // Case 3: Adding would exceed hard limit - save without this paragraph
+      if (currentWords + paragraphWords > AppConstants.maxChunkWords && currentChunkParagraphs.isNotEmpty) {
+        final chunkContent = currentChunkParagraphs.join('\n\n').trim();
+        results.add(_createChunkResult(chunkContent, pageNumber, sequenceIndex++));
+        currentChunkParagraphs.clear();
+        currentWords = 0;
+      }
+      
+      // Add paragraph to current chunk
+      currentChunkParagraphs.add(paragraph);
+      currentWords += paragraphWords;
+    }
+    
+    // Add remaining paragraphs
+    if (currentChunkParagraphs.isNotEmpty) {
+      final chunkContent = currentChunkParagraphs.join('\n\n').trim();
+      results.add(_createChunkResult(chunkContent, pageNumber, sequenceIndex));
     }
     
     return results;
   }
-
-  /// Split text into sections by double newlines
-  List<String> _splitIntoSections(String text) {
+  
+  ChunkResult _createChunkResult(String content, int? pageNumber, int sequenceIndex) {
+    final chunkType = _detectChunkType(content);
+    final tokens = TokenEstimator.estimate(content);
+    final words = content.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+    
+    return ChunkResult(
+      content: content,
+      chunkType: chunkType,
+      pageNumber: pageNumber,
+      sectionIndex: sequenceIndex,
+      metadata: {
+        'words': words,
+        'estimated_tokens': tokens,
+      },
+    );
+  }
+  
+  /// Split into paragraphs (preserve paragraph structure)
+  List<String> _splitIntoParagraphs(String text) {
     return text
-        .split(RegExp(r'\n\s*\n'))
-        .where((s) => s.trim().isNotEmpty)
+        .split(RegExp(r'\n+'))
+        .where((p) => p.trim().isNotEmpty)
         .toList();
+  }
+
+  /// Split a single paragraph into sentence-based chunks (never split sentences)
+  /// Uses WORD COUNT instead of token estimation for reliability
+  List<ChunkResult> _splitParagraphBySentences(
+    String paragraph,
+    int? pageNumber,
+    int startSequence,
+  ) {
+    final results = <ChunkResult>[];
+    var sentences = _splitIntoSentences(paragraph);
+    
+    // Edge case: no proper sentences - split by word count
+    final paragraphWords = paragraph.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+    if (sentences.length <= 1 && paragraphWords > AppConstants.targetChunkWords) {
+      return _splitByWordCount(paragraph, pageNumber, startSequence);
+    }
+    
+    var currentSentences = <String>[];
+    var currentWords = 0;
+    var sequenceIndex = startSequence;
+    
+    for (var i = 0; i < sentences.length; i++) {
+      final sentence = sentences[i];
+      final sentenceWords = sentence.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+      
+      // If single sentence exceeds hard limit, truncate by words (last resort)
+      if (sentenceWords > AppConstants.maxChunkWords) {
+        if (currentSentences.isNotEmpty) {
+          final chunkContent = currentSentences.join(' ').trim();
+          results.add(_createChunkResult(chunkContent, pageNumber, sequenceIndex++));
+          currentSentences.clear();
+          currentWords = 0;
+        }
+        
+        // Truncate sentence to max word count
+        final words = sentence.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+        final truncated = words.take(AppConstants.maxChunkWords).join(' ');
+        results.add(_createChunkResult(truncated, pageNumber, sequenceIndex++));
+        continue;
+      }
+      
+      // Would exceed target - save current chunk
+      if (currentWords + sentenceWords > AppConstants.targetChunkWords && currentSentences.isNotEmpty) {
+        final chunkContent = currentSentences.join(' ').trim();
+        results.add(_createChunkResult(chunkContent, pageNumber, sequenceIndex++));
+        
+        // Start new with overlap (last sentence if fits in overlap limit)
+        currentSentences.clear();
+        currentWords = 0;
+        
+        if (i > 0) {
+          final prevWords = sentences[i - 1].split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+          if (prevWords <= AppConstants.chunkOverlapWords) {
+            currentSentences.add(sentences[i - 1]);
+            currentWords = prevWords;
+          }
+        }
+      }
+      
+      // Would exceed hard limit - save without overlap
+      if (currentWords + sentenceWords > AppConstants.maxChunkWords && currentSentences.isNotEmpty) {
+        final chunkContent = currentSentences.join(' ').trim();
+        results.add(_createChunkResult(chunkContent, pageNumber, sequenceIndex++));
+        currentSentences.clear();
+        currentWords = 0;
+      }
+      
+      currentSentences.add(sentence);
+      currentWords += sentenceWords;
+    }
+    
+    // Add remaining
+    if (currentSentences.isNotEmpty) {
+      final chunkContent = currentSentences.join(' ').trim();
+      results.add(_createChunkResult(chunkContent, pageNumber, sequenceIndex));
+    }
+    
+    return results;
+  }
+  
+  /// Fallback: Split by word count when no sentence boundaries (never split words)
+  List<ChunkResult> _splitByWordCount(String text, int? pageNumber, int startSequence) {
+    final results = <ChunkResult>[];
+    final words = text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    
+    final wordsPerChunk = AppConstants.targetChunkWords;
+    final overlapWords = AppConstants.chunkOverlapWords;
+    
+    var sequenceIndex = startSequence;
+    
+    for (int i = 0; i < words.length; i += (wordsPerChunk - overlapWords)) {
+      final end = (i + wordsPerChunk < words.length) ? i + wordsPerChunk : words.length;
+      final chunkWords = words.sublist(i, end);
+      final chunkContent = chunkWords.join(' ');
+      
+      results.add(_createChunkResult(chunkContent, pageNumber, sequenceIndex++));
+      
+      if (end >= words.length) break;
+    }
+    
+    return results;
   }
 
   /// Detect the type of chunk based on content patterns
@@ -233,64 +383,6 @@ class EducationalChunkingStrategy implements ChunkingStrategy {
     return pipeCount >= 2 && pipeCount >= nonEmptyLines * 0.5;
   }
 
-  /// Split large section into smaller chunks with overlap
-  List<ChunkResult> _splitLargeSection(
-    String section,
-    String chunkType,
-    int? pageNumber,
-    int startSequence,
-  ) {
-    final results = <ChunkResult>[];
-    final sentences = _splitIntoSentences(section);
-    
-    var currentChunk = StringBuffer();
-    var currentTokens = 0;
-    var sequenceIndex = startSequence;
-    
-    for (var i = 0; i < sentences.length; i++) {
-      final sentence = sentences[i];
-      final sentenceTokens = TokenEstimator.estimate(sentence);
-      
-      // If adding this sentence would exceed limit, save current chunk
-      if (currentTokens + sentenceTokens > targetChunkSize && 
-          currentChunk.isNotEmpty) {
-        results.add(ChunkResult(
-          content: currentChunk.toString().trim(),
-          chunkType: chunkType,
-          pageNumber: pageNumber,
-          sectionIndex: sequenceIndex++,
-        ));
-        
-        // Start new chunk with overlap (last few sentences)
-        currentChunk = StringBuffer();
-        currentTokens = 0;
-        
-        // Add overlap from previous sentences
-        final overlapStart = (i - 2).clamp(0, sentences.length);
-        for (var j = overlapStart; j < i; j++) {
-          currentChunk.write(sentences[j]);
-          currentChunk.write(' ');
-          currentTokens += TokenEstimator.estimate(sentences[j]);
-        }
-      }
-      
-      currentChunk.write(sentence);
-      currentChunk.write(' ');
-      currentTokens += sentenceTokens;
-    }
-    
-    // Add remaining content
-    if (currentChunk.isNotEmpty) {
-      results.add(ChunkResult(
-        content: currentChunk.toString().trim(),
-        chunkType: chunkType,
-        pageNumber: pageNumber,
-        sectionIndex: sequenceIndex,
-      ));
-    }
-    
-    return results;
-  }
 
   /// Split text into sentences
   List<String> _splitIntoSentences(String text) {

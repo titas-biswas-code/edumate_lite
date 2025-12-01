@@ -4,14 +4,19 @@ class TokenEstimator {
   TokenEstimator._();
 
   /// Estimate tokens from text
-  /// Uses empirical formula: words * 1.3 + punctuation * 0.5
+  /// VERY conservative formula for SentencePiece (EmbeddingGemma tokenizer)
+  /// Observed: chunks estimated at 1400 actually have 3332 tokens
+  /// Real ratio: 3332/1400 = 2.38x
+  /// Using 2.5x for safety margin
   static int estimate(String text) {
     if (text.isEmpty) return 0;
 
     final words = text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
     final punctuation =
         RegExp(r'''[.,!?;:\-(){}\[\]"'`]''').allMatches(text).length;
-    return (words * 1.3 + punctuation * 0.5).ceil();
+    
+    // Very conservative: 2.5 tokens per word + punctuation
+    return (words * 2.5 + punctuation * 0.5).ceil();
   }
 
   /// Check if text fits within token limit

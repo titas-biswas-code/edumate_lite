@@ -1,20 +1,17 @@
-import 'package:flutter_gemma/flutter_gemma.dart';
+import 'package:embedding_gemma/embedding_gemma.dart';
 import '../../domain/interfaces/embedding_provider.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/errors/exceptions.dart';
 import '../../core/utils/logger.dart';
 
-/// Gemma-based embedding provider using EmbeddingGemma-300M
-///
-/// IMPORTANT: flutter_gemma returns dynamic types that need explicit casting
-/// - generateEmbedding() returns `List<dynamic>` (needs cast to `List<double>`)
-/// - generateEmbeddings() returns `List<dynamic>` where each item is `List<dynamic>`
+/// Gemma-based embedding provider using EmbeddingGemma-300M (2048 tokens)
+/// Uses Google's RAG library via embedding_gemma package
 class GemmaEmbeddingProvider implements EmbeddingProvider {
   bool _isReady = false;
-  EmbeddingModel? _embeddingModel;
+  EmbeddingGemma? _embeddingModel;
 
   @override
-  String get modelId => 'EmbeddingGemma-300M';
+  String get modelId => 'EmbeddingGemma-300M-2048';
 
   @override
   int get dimension => AppConstants.embeddingDimension;
@@ -24,26 +21,25 @@ class GemmaEmbeddingProvider implements EmbeddingProvider {
 
   @override
   Future<void> initialize() async {
-    AppLogger.info('🚀 Initializing EmbeddingGemma provider...');
+    AppLogger.info('🚀 Initializing EmbeddingGemma provider (2048-token)...');
 
     try {
-      // Check if active embedding model exists
-      if (!FlutterGemma.hasActiveEmbedder()) {
+      // Check if active embedding model exists (flutter_gemma pattern)
+      if (!await EmbeddingGemma.hasActiveModel()) {
         AppLogger.error('❌ No active embedding model found');
         throw ModelException(
-          'No active embedding model. Please download first.',
+          'No active embedding model. Use ModelDownloadService.loadEmbeddingModel() first.',
         );
       }
 
-      AppLogger.debug(
-        '✅ Active embedder found, attempting GPU initialization...',
-      );
+      AppLogger.info('✅ Active embedding model found, initializing...');
 
       // Get the active embedding model with GPU support if available
       try {
-        _embeddingModel = await FlutterGemma.getActiveEmbedder(
-          preferredBackend: PreferredBackend.gpu,
+        _embeddingModel = await EmbeddingGemma.getActiveModel(
+          backend: EmbeddingBackend.GPU,
         );
+
         _isReady = true;
         AppLogger.info('✅ Embedding model initialized with GPU backend');
       } catch (e) {
@@ -54,9 +50,10 @@ class GemmaEmbeddingProvider implements EmbeddingProvider {
 
         // Try CPU fallback
         try {
-          _embeddingModel = await FlutterGemma.getActiveEmbedder(
-            preferredBackend: PreferredBackend.cpu,
+          _embeddingModel = await EmbeddingGemma.getActiveModel(
+            backend: EmbeddingBackend.CPU,
           );
+
           _isReady = true;
           AppLogger.info('✅ Embedding model initialized with CPU backend');
         } catch (e2) {
@@ -68,7 +65,9 @@ class GemmaEmbeddingProvider implements EmbeddingProvider {
         }
       }
 
-      AppLogger.info('✅ EmbeddingGemma ready (dimension: $dimension)');
+      AppLogger.info(
+        '✅ EmbeddingGemma ready (dimension: $dimension, max tokens: ${AppConstants.maxEmbeddingTokens})',
+      );
     } catch (e, stackTrace) {
       _isReady = false;
       AppLogger.error(
@@ -94,27 +93,11 @@ class GemmaEmbeddingProvider implements EmbeddingProvider {
 
     try {
       AppLogger.debug(
-        '📝 Generating embedding for text (length: ${text.length})',
+        '📝 Generating document embedding (length: ${text.length})',
       );
 
-      // Keep as dynamic to avoid CastList wrapper
-      final dynamic embeddingRaw = await _embeddingModel!.generateEmbedding(
-        text,
-      );
-
-      AppLogger.verbose('Raw embedding type: ${embeddingRaw.runtimeType}');
-
-      // Eagerly convert using dynamic access to bypass CastList
-      final embedding = <double>[];
-      if (embeddingRaw is List) {
-        final int count = (embeddingRaw as dynamic).length as int;
-        for (int i = 0; i < count; i++) {
-          final dynamic value = (embeddingRaw as dynamic)[i];
-          if (value is num) {
-            embedding.add(value.toDouble());
-          }
-        }
-      }
+      // Use embed() for material chunks (adds document prompt)
+      final embedding = await _embeddingModel!.embed(text);
 
       AppLogger.debug('✅ Generated embedding (dim: ${embedding.length})');
 
@@ -128,6 +111,41 @@ class GemmaEmbeddingProvider implements EmbeddingProvider {
     } catch (e, stackTrace) {
       AppLogger.error('❌ Embedding generation failed', e, stackTrace);
       throw ModelException('Embedding generation failed: $e');
+    }
+  }
+
+  @override
+  Future<List<double>> embedQuery(String query) async {
+    if (!_isReady || _embeddingModel == null) {
+      AppLogger.error('❌ Embedding provider not initialized');
+      throw ModelException('Embedding provider not initialized');
+    }
+
+    if (query.isEmpty) {
+      AppLogger.warning('⚠️  Empty query provided to embedQuery()');
+      throw ModelException('Query cannot be empty');
+    }
+
+    try {
+      AppLogger.debug(
+        '🔍 Generating query embedding (length: ${query.length})',
+      );
+
+      // Use embedQuery() for RAG queries (adds task prompt)
+      final embedding = await _embeddingModel!.embedQuery(query);
+
+      AppLogger.debug('✅ Generated query embedding (dim: ${embedding.length})');
+
+      if (embedding.length != dimension) {
+        AppLogger.warning(
+          '⚠️  Unexpected embedding dimension: ${embedding.length}, expected: $dimension',
+        );
+      }
+
+      return embedding;
+    } catch (e, stackTrace) {
+      AppLogger.error('❌ Query embedding generation failed', e, stackTrace);
+      throw ModelException('Query embedding generation failed: $e');
     }
   }
 
@@ -146,22 +164,24 @@ class GemmaEmbeddingProvider implements EmbeddingProvider {
     }
 
     try {
-      // WORKAROUND: flutter_gemma's generateEmbeddings() returns broken CastList
-      // Call embed() individually instead - it works fine
-      AppLogger.debug(
-        '⚠️  Using individual embed() calls instead of broken batch API (${texts.length} texts)',
+      AppLogger.debug('🚀 Using native batch API for ${texts.length} texts');
+
+      final embeddings = await _embeddingModel!.embedBatch(texts);
+
+      AppLogger.info(
+        '✅ Successfully generated ${embeddings.length} embeddings',
       );
 
-      final result = <List<double>>[];
-      
-      for (int i = 0; i < texts.length; i++) {
-        AppLogger.verbose('  [$i/${texts.length}] Generating embedding...');
-        final embedding = await embed(texts[i]);
-        result.add(embedding);
+      // Validate dimensions
+      for (int i = 0; i < embeddings.length; i++) {
+        if (embeddings[i].length != dimension) {
+          AppLogger.warning(
+            '⚠️  Embedding[$i] has unexpected dimension: ${embeddings[i].length}, expected: $dimension',
+          );
+        }
       }
 
-      AppLogger.info('✅ Successfully generated ${result.length} embeddings');
-      return result;
+      return embeddings;
     } catch (e, stackTrace) {
       AppLogger.error(
         '❌ Batch embedding generation failed for ${texts.length} texts',
@@ -175,6 +195,10 @@ class GemmaEmbeddingProvider implements EmbeddingProvider {
   @override
   Future<void> dispose() async {
     _isReady = false;
-    _embeddingModel = null;
+    if (_embeddingModel != null) {
+      _embeddingModel!.dispose();
+      _embeddingModel = null;
+    }
+    AppLogger.info('✅ Embedding provider disposed');
   }
 }

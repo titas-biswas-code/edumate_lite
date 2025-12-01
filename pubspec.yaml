@@ -1,5 +1,5 @@
 name: edumate_lite
-description: "A new Flutter project."
+description: "EduMate Lite - AI-powered educational assistant for students (grades 5-10)"
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 environment:
@@ -32,6 +32,8 @@ dependencies:
 
   # AI/ML
   flutter_gemma: ^0.11.13
+  embedding_gemma:
+    path: packages/embedding_gemma
 
   # PDF Processing
   syncfusion_flutter_pdf: ^31.2.15

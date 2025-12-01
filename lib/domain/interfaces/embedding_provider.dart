@@ -10,8 +10,11 @@ abstract class EmbeddingProvider {
   /// Initialize the embedding model
   Future<void> initialize();
 
-  /// Generate embedding for a single text
+  /// Generate embedding for a single text (document/chunk)
   Future<List<double>> embed(String text);
+
+  /// Generate embedding for a query (optimized prompt for retrieval)
+  Future<List<double>> embedQuery(String query) => embed(query);
 
   /// Generate embeddings for multiple texts (batch processing)
   Future<List<List<double>>> embedBatch(List<String> texts);

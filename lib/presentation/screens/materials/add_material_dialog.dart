@@ -166,7 +166,36 @@ class _AddMaterialDialogState extends State<AddMaterialDialog> {
       final file = result.files.single;
       final sizeMb = (file.size / (1024 * 1024));
       
-      // Validate file size before processing
+      // Warn for large files
+      if (sizeMb > 100) {
+        if (mounted) {
+          final proceed = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Large File'),
+              content: Text(
+                'This PDF is ${sizeMb.toStringAsFixed(0)}MB. '
+                'Processing may take several minutes and use significant memory.\n\n'
+                'Continue?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Continue'),
+                ),
+              ],
+            ),
+          );
+          
+          if (proceed != true) return;
+        }
+      }
+      
+      // Hard limit check
       if (sizeMb > AppConstants.maxPdfSizeMb) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

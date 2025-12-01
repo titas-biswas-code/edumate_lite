@@ -40,11 +40,11 @@ read -p "Press Enter to continue after requesting access..."
 echo ""
 
 # Download Embedding Model (from litert-community - public repo)
-echo "📥 Downloading Embedding Model (~300MB)..."
+echo "📥 Downloading Embedding Model (2048-token, ~300MB)..."
 curl -L \
   --progress-bar \
-  -o "$MODELS_DIR/embeddinggemma-300M_seq512_mixed-precision.tflite" \
-  "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/embeddinggemma-300M_seq512_mixed-precision.tflite"
+  -o "$MODELS_DIR/embeddinggemma-300M_seq2048_mixed-precision.tflite" \
+  "https://huggingface.co/litert-community/embeddinggemma-300m/resolve/main/embeddinggemma-300M_seq2048_mixed-precision.tflite"
 
 if [ $? -ne 0 ]; then
     echo "❌ Failed to download embedding model"
@@ -53,15 +53,15 @@ if [ $? -ne 0 ]; then
 fi
 
 # Verify file size (should be >100MB)
-FILE_SIZE=$(stat -f%z "$MODELS_DIR/embeddinggemma-300M_seq512_mixed-precision.tflite" 2>/dev/null || stat -c%s "$MODELS_DIR/embeddinggemma-300M_seq512_mixed-precision.tflite" 2>/dev/null)
+FILE_SIZE=$(stat -f%z "$MODELS_DIR/embeddinggemma-300M_seq2048_mixed-precision.tflite" 2>/dev/null || stat -c%s "$MODELS_DIR/embeddinggemma-300M_seq2048_mixed-precision.tflite" 2>/dev/null)
 if [ "$FILE_SIZE" -lt 100000000 ]; then
     echo "❌ Downloaded file is too small ($FILE_SIZE bytes) - likely an error page"
     echo "   Check if you requested access at: https://huggingface.co/google/embeddinggemma-300m"
-    cat "$MODELS_DIR/embeddinggemma-300M_seq512_mixed-precision.tflite"
+    cat "$MODELS_DIR/embeddinggemma-300M_seq2048_mixed-precision.tflite"
     exit 1
 fi
 
-echo "✅ Embedding model downloaded ($(du -h "$MODELS_DIR/embeddinggemma-300M_seq512_mixed-precision.tflite" | cut -f1))"
+echo "✅ Embedding model downloaded ($(du -h "$MODELS_DIR/embeddinggemma-300M_seq2048_mixed-precision.tflite" | cut -f1))"
 echo ""
 
 # Download Embedding Tokenizer (from litert-community - public repo)

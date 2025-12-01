@@ -1,0 +1,65 @@
+group 'io.flutter.embedding_gemma'
+version '1.0'
+
+buildscript {
+    ext.kotlin_version = '1.9.23'
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.3.2'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+android {
+    namespace 'io.flutter.embedding_gemma'
+    compileSdk 34
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    kotlinOptions {
+        jvmTarget = '11'
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+
+    defaultConfig {
+        minSdk 26
+    }
+}
+
+dependencies {
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.9.23'
+    
+    // Google RAG library for embeddings (same as flutter_gemma)
+    implementation 'com.google.ai.edge.localagents:localagents-rag:0.3.0'
+    implementation 'com.google.guava:guava:33.3.1-android'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.9.0'
+    
+    // Protobuf (required by RAG library)
+    implementation 'com.google.protobuf:protobuf-javalite:3.25.1'
+    
+    // Coroutines for async operations
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
+    
+    implementation 'androidx.core:core-ktx:1.12.0'
+}

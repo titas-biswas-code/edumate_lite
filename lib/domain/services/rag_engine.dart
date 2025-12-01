@@ -50,8 +50,8 @@ class RagEngine {
         return Left(ModelFailure('Inference provider not ready'));
       }
 
-      // Generate query embedding
-      final queryEmbedding = await embeddingProvider.embed(query);
+      // Generate query embedding (optimized for retrieval)
+      final queryEmbedding = await embeddingProvider.embedQuery(query);
 
       // Retrieve relevant chunks
       final retrievedChunks = await vectorStore.search(

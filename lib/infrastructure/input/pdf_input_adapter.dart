@@ -101,44 +101,77 @@ class PdfInputAdapter implements InputSource {
         return;
       }
       
-      final extractedPages = <String>[];
-
-      // Extract text from each page
-      for (var i = 0; i < pageCount; i++) {
-        final text = PdfTextExtractor(document).extractText(startPageIndex: i, endPageIndex: i);
-
-        if (text.isNotEmpty) {
-          extractedPages.add(text);
-        }
-
-        // Report progress
-        final progress = 0.1 + (0.8 * (i + 1) / pageCount);
-        yield ExtractionProgress(
-          progress: progress,
-          currentPage: 'Page ${i + 1}/$pageCount',
-          extractedText: text.isNotEmpty ? text : null,
-        );
-      }
-
-      // Dispose document
-      document.dispose();
-
-      // Final result
-      final fullText = extractedPages.join('\n\n');
+      // STREAMING EXTRACTION: Process in batches, yield incrementally
+      final batchSize = AppConstants.pdfPageBatchSize;
+      final buffer = StringBuffer();
+      bool hasAnyText = false;
       
-      if (fullText.trim().isEmpty) {
-        yield ExtractionProgress(
-          progress: 1.0,
-          isComplete: true,
-          error: 'No text found. PDF may contain only images or scanned content.',
-        );
-      } else {
-        yield ExtractionProgress(
-          progress: 1.0,
-          extractedText: fullText,
-          isComplete: true,
-        );
+      for (var batchStart = 0; batchStart < pageCount; batchStart += batchSize) {
+        final batchEnd = (batchStart + batchSize < pageCount) 
+            ? batchStart + batchSize 
+            : pageCount;
+        
+        AppLogger.debug('📄 Extracting pages ${batchStart + 1}-$batchEnd');
+        buffer.clear();
+        
+        // Extract batch of pages with layout information
+        for (var i = batchStart; i < batchEnd; i++) {
+          // Extract text with layout (preserves paragraph structure)
+          final textExtractor = PdfTextExtractor(document);
+          final textLines = textExtractor.extractTextLines(
+            startPageIndex: i,
+            endPageIndex: i,
+          );
+
+          if (textLines.isNotEmpty) {
+            // Group text lines into paragraphs based on vertical spacing
+            var lastY = 0.0;
+            for (final line in textLines) {
+              final text = line.text.trim();
+              if (text.isEmpty) continue;
+              
+              // Detect paragraph break (significant vertical gap)
+              if (lastY > 0 && (line.bounds.top - lastY) > 15) {
+                buffer.writeln(); // Extra newline for paragraph break
+              }
+              
+              buffer.writeln(text);
+              lastY = line.bounds.bottom;
+              hasAnyText = true;
+            }
+            
+            buffer.writeln(); // Page separator
+          }
+
+          // Report progress
+          final progress = 0.1 + (0.8 * (i + 1) / pageCount);
+          yield ExtractionProgress(
+            progress: progress,
+            currentPage: 'Page ${i + 1}/$pageCount',
+          );
+        }
+        
+        // Yield batch text immediately, then clear buffer
+        if (buffer.isNotEmpty) {
+          yield ExtractionProgress(
+            progress: 0.1 + (0.8 * batchEnd / pageCount),
+            currentPage: 'Pages ${batchStart + 1}-$batchEnd extracted',
+            extractedText: buffer.toString(),
+          );
+        }
       }
+
+      // Dispose document to free memory
+      document.dispose();
+      AppLogger.info('✅ PDF extraction complete: $pageCount pages');
+
+      // Final completion signal
+      yield ExtractionProgress(
+        progress: 1.0,
+        currentPage: 'Complete',
+        isComplete: true,
+        error: hasAnyText ? null : 'No text found in PDF',
+      );
     } catch (e) {
       yield ExtractionProgress(
         progress: 0,

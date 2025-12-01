@@ -1,0 +1,23 @@
+name: embedding_gemma_example
+description: Example app for embedding_gemma plugin
+publish_to: none
+
+environment:
+  sdk: '^3.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  embedding_gemma:
+    path: ../
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/models/embeddinggemma-300M_seq2048_mixed-precision.tflite
+    - assets/models/sentencepiece.model

@@ -28,6 +28,11 @@ class MockEmbeddingProvider implements EmbeddingProvider {
   }
 
   @override
+  Future<List<double>> embedQuery(String query) async {
+    return List.generate(768, (i) => i / 768);
+  }
+
+  @override
   Future<List<List<double>>> embedBatch(List<String> texts) async {
     return [for (final text in texts) await embed(text)];
   }

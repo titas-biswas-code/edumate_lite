@@ -1,5 +1,6 @@
 import 'package:dartz/dartz.dart';
 import 'package:flutter_gemma/flutter_gemma.dart';
+import 'package:embedding_gemma/embedding_gemma.dart';
 import '../../core/errors/failures.dart';
 import '../../core/constants/app_constants.dart';
 import '../../stores/model_download_store.dart';
@@ -11,21 +12,19 @@ class ModelDownloadService {
 
   ModelDownloadService(this.downloadStore);
 
-  /// Load embedding model from bundled assets (async - non-blocking)
+  /// Load embedding model from bundled assets (flutter_gemma pattern)
   Future<Either<Failure, Unit>> loadEmbeddingModel() async {
     try {
       downloadStore.setEmbeddingStatus(ModelDownloadStatus.downloading);
       downloadStore.setEmbeddingProgress(0.0);
 
-      // Install embedding model from bundled assets
-      // This runs asynchronously and won't block UI
-      await FlutterGemma.installEmbedder()
+      // Install embedding model using builder pattern (same as flutter_gemma)
+      await EmbeddingGemma.installModel()
           .modelFromAsset(AppConstants.embeddingModelAsset)
           .tokenizerFromAsset(AppConstants.embeddingTokenizerAsset)
-          .withModelProgress((progress) {
-            // Update progress - this callback runs on different thread
+          .withProgress((progress) {
             Future.microtask(() {
-              downloadStore.setEmbeddingProgress(progress / 100);
+              downloadStore.setEmbeddingProgress(progress);
             });
           })
           .install();
@@ -71,7 +70,10 @@ class ModelDownloadService {
   /// Check if models are already downloaded
   Future<bool> checkModelsDownloaded() async {
     try {
-      final hasEmbedding = FlutterGemma.hasActiveEmbedder();
+      // Check if embedding model is installed (same pattern as flutter_gemma)
+      final hasEmbedding = await EmbeddingGemma.hasActiveModel();
+      
+      // Check if inference model exists in flutter_gemma registry
       final hasInference = FlutterGemma.hasActiveModel();
 
       if (hasEmbedding) {
