@@ -51,6 +51,8 @@ dependencies:
   flutter_markdown_plus: ^1.0.5
   flutter_math_fork: ^0.7.2
   flex_color_scheme: ^8.3.1
+  convex_bottom_bar: ^3.2.0
+  animated_text_kit: ^4.2.2
 
   # Utilities
   equatable: ^2.0.7
@@ -93,6 +95,7 @@ flutter:
   # Models will be packaged with the app (~4GB total)
   assets:
     - assets/models/
+    - assets/sample_docs/
     - test/fixtures/
 
   # To add assets to your application, add an assets section, like this:

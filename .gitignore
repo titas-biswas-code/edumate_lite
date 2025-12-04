@@ -60,3 +60,5 @@ config.json
 *.model
 assets/models/
 /assets/sample_docs/Biology2e-WEB.pdf
+test/extracted_paragraphs.txt
+assets/sample_docs/Biology2e-preface-cleaned.pdf

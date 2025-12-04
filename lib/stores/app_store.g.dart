@@ -97,6 +97,24 @@ mixin _$AppStore on AppStoreBase, Store {
     );
   }
 
+  late final _$devModeEnabledAtom = Atom(
+    name: 'AppStoreBase.devModeEnabled',
+    context: context,
+  );
+
+  @override
+  bool get devModeEnabled {
+    _$devModeEnabledAtom.reportRead();
+    return super.devModeEnabled;
+  }
+
+  @override
+  set devModeEnabled(bool value) {
+    _$devModeEnabledAtom.reportWrite(value, super.devModeEnabled, () {
+      super.devModeEnabled = value;
+    });
+  }
+
   late final _$AppStoreBaseActionController = ActionController(
     name: 'AppStoreBase',
     context: context,
@@ -151,12 +169,25 @@ mixin _$AppStore on AppStoreBase, Store {
   }
 
   @override
+  void setDevModeEnabled(bool value) {
+    final _$actionInfo = _$AppStoreBaseActionController.startAction(
+      name: 'AppStoreBase.setDevModeEnabled',
+    );
+    try {
+      return super.setDevModeEnabled(value);
+    } finally {
+      _$AppStoreBaseActionController.endAction(_$actionInfo);
+    }
+  }
+
+  @override
   String toString() {
     return '''
 themeMode: ${themeMode},
 isModelsDownloaded: ${isModelsDownloaded},
 isEmbeddingModelReady: ${isEmbeddingModelReady},
 isInferenceModelReady: ${isInferenceModelReady},
+devModeEnabled: ${devModeEnabled},
 isAppReady: ${isAppReady}
     ''';
   }

@@ -120,14 +120,13 @@ class EmbeddingGemma {
     return result.embeddings;
   }
 
-  /// Count tokens for text (approximate)
-  ///
+  /// Count ACTUAL tokens using SentencePiece tokenizer
+  /// 
   /// [text]: Text to count tokens for
   /// [withPrompt]: Include task prompt overhead (default: true)
-  ///
-  /// Returns approximate token count (±10% accuracy).
-  /// Uses character-based estimation: ~4 chars per token for English.
-  ///
+  /// 
+  /// Returns EXACT token count using TFLite Support's SentencePiece.
+  /// 
   /// Example:
   /// ```dart
   /// final count = await embedder.countTokens('Your text here');

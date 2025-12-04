@@ -147,7 +147,7 @@ class EmbeddingResult {
   static EmbeddingResult decode(Object result) {
     result as List<Object?>;
     return EmbeddingResult(
-      embedding: (result[0] as List<Object?>?)!.cast<double>(),
+      embedding: List<double>.from((result[0] as List<Object?>?)!.map((e) => e as double)),
     );
   }
 }
@@ -168,7 +168,11 @@ class BatchEmbeddingResult {
   static BatchEmbeddingResult decode(Object result) {
     result as List<Object?>;
     return BatchEmbeddingResult(
-      embeddings: (result[0] as List<Object?>?)!.cast<List<double>>(),
+      embeddings: List<List<double>>.from(
+        (result[0] as List<Object?>?)!.map((outer) =>
+          List<double>.from((outer as List<Object?>).map((inner) => inner as double))
+        )
+      ),
     );
   }
 }

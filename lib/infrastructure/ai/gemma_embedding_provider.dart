@@ -19,6 +19,14 @@ class GemmaEmbeddingProvider implements EmbeddingProvider {
   @override
   bool get isReady => _isReady;
 
+  /// Expose embedding model for token counting in chunking strategy
+  EmbeddingGemma get embeddingModel {
+    if (_embeddingModel == null) {
+      throw ModelException('Embedding model not initialized');
+    }
+    return _embeddingModel!;
+  }
+
   @override
   Future<void> initialize() async {
     AppLogger.info('🚀 Initializing EmbeddingGemma provider (2048-token)...');

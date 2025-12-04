@@ -7,7 +7,9 @@ import '../../widgets/chat/message_bubble.dart';
 import '../../widgets/chat/input_bar.dart';
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key});
+  final int? conversationId;
+  
+  const ChatScreen({super.key, this.conversationId});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -26,8 +28,11 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _initializeChat() async {
-    // Start a new conversation if none exists
-    if (chatStore.currentConversation == null) {
+    if (widget.conversationId != null) {
+      // Load existing conversation
+      await chatStore.loadConversation(widget.conversationId!);
+    } else if (chatStore.currentConversation == null) {
+      // Start a new conversation
       await chatStore.startNewConversation('New Chat');
     }
   }
@@ -163,12 +168,6 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'new_chat_fab',
-        onPressed: _startNewChat,
-        mini: true,
-        child: const Icon(Icons.add),
       ),
     );
   }

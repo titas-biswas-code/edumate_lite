@@ -3,7 +3,7 @@ import '../infrastructure/database/objectbox.dart';
 import '../infrastructure/database/objectbox_vector_store.dart';
 import '../infrastructure/ai/gemma_embedding_provider.dart';
 import '../infrastructure/ai/gemma_inference_provider.dart';
-import '../infrastructure/chunking/educational_chunking_strategy.dart';
+import '../infrastructure/chunking/token_validated_chunking_strategy.dart';
 import '../infrastructure/input/pdf_input_adapter.dart';
 import '../infrastructure/input/image_input_adapter.dart';
 import '../infrastructure/input/camera_input_adapter.dart';
@@ -35,14 +35,16 @@ Future<void> setupServiceLocator() async {
   getIt.registerLazySingleton<GemmaEmbeddingProvider>(
     () => GemmaEmbeddingProvider(),
   );
-  
+
   getIt.registerLazySingleton<GemmaInferenceProvider>(
     () => GemmaInferenceProvider(),
   );
 
-  // Infrastructure - Chunking
-  getIt.registerLazySingleton<EducationalChunkingStrategy>(
-    () => EducationalChunkingStrategy(),
+  // Infrastructure - Chunking (requires embedding provider for token counting)
+  getIt.registerLazySingleton<TokenValidatedChunkingStrategy>(
+    () => TokenValidatedChunkingStrategy(
+      embeddingProvider: getIt<GemmaEmbeddingProvider>(),
+    ),
   );
 
   // Infrastructure - Input Adapters
@@ -83,7 +85,7 @@ Future<void> setupServiceLocator() async {
         getIt<CameraInputAdapter>(),
         getIt<TextInputAdapter>(),
       ],
-      chunkingStrategy: getIt<EducationalChunkingStrategy>(),
+      chunkingStrategy: getIt<TokenValidatedChunkingStrategy>(),
       embeddingProvider: getIt<GemmaEmbeddingProvider>(),
       vectorStore: getIt<ObjectBoxVectorStore>(),
       materialBox: objectBox.materialBox,
@@ -101,4 +103,3 @@ Future<void> setupServiceLocator() async {
     ModelDownloadService(getIt<ModelDownloadStore>()),
   );
 }
-

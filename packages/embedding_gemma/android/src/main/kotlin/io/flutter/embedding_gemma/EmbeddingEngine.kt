@@ -22,6 +22,7 @@ class EmbeddingEngine(
     private val requestedBackend: EmbeddingBackend
 ) {
     private var gemmaEmbeddingModel: GemmaEmbeddingModel? = null
+    private var tokenizer: SentencePieceTokenizer? = null
     private var actualBackend: EmbeddingBackend = EmbeddingBackend.CPU
     
     companion object {
@@ -52,9 +53,17 @@ class EmbeddingEngine(
         val useGpu = requestedGpu && GpuCapabilityChecker.canUseGpu(context)
         actualBackend = if (useGpu) requestedBackend else EmbeddingBackend.CPU
 
-        // Initialize
+        // Initialize embedding model
         gemmaEmbeddingModel = GemmaEmbeddingModel(modelPath, tokenizerPath, useGpu)
-        Log.i(TAG, "Initialized with ${actualBackend} backend")
+        
+        // Initialize tokenizer for counting
+        try {
+            tokenizer = SentencePieceTokenizer(tokenizerPath)
+            Log.i(TAG, "Initialized with ${actualBackend} backend + tokenizer")
+        } catch (e: Exception) {
+            Log.w(TAG, "Tokenizer init failed (countTokens will use approximation): ${e.message}")
+            Log.i(TAG, "Initialized with ${actualBackend} backend")
+        }
     }
     
     private fun isEmulator(): Boolean {
@@ -97,37 +106,37 @@ class EmbeddingEngine(
     }
     
     /**
-     * Count tokens for text (approximate)
-     * 
-     * Note: GemmaEmbeddingModel doesn't expose tokenizer directly.
-     * This uses character-based estimation: ~4 chars per token for English.
-     * Add 10 tokens for task prompt overhead.
+     * Count ACTUAL tokens using SentencePiece tokenizer
      */
     fun countTokens(text: String, withPrompt: Boolean): Int {
         val baseText = if (withPrompt) {
-            // Add task prompt overhead
             "title: none | text: $text"
         } else {
             text
         }
         
-        // Approximate token count (English: ~4 chars per token)
-        // SentencePiece typically produces 0.7-0.8 tokens per word
-        val words = baseText.split(Regex("\\s+")).size
-        val chars = baseText.length
-        
-        // Use word-based for short text, char-based for long text
-        val estimate = if (words < 100) {
-            (words * 0.75).toInt() // 0.75 tokens per word
+        return if (tokenizer != null) {
+            try {
+                tokenizer!!.countTokens(baseText)
+            } catch (e: Exception) {
+                Log.w(TAG, "Tokenizer failed, using approximation: ${e.message}")
+                approximateTokenCount(baseText)
+            }
         } else {
-            (chars / 4.0).toInt() // 4 chars per token
+            approximateTokenCount(baseText)
         }
-        
-        // Add special tokens (BOS, EOS)
-        return estimate + 2
+    }
+    
+    /**
+     * Fallback approximation if tokenizer fails
+     */
+    private fun approximateTokenCount(text: String): Int {
+        if (text.isEmpty()) return 2
+        return (text.length / 3.3).toInt() + 2
     }
     
     fun dispose() {
         gemmaEmbeddingModel = null
+        tokenizer = null
     }
 }

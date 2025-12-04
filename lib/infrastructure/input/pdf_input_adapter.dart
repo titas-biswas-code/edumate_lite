@@ -61,59 +61,56 @@ class PdfInputAdapter implements InputSource {
       // Validate file size
       final fileSizeBytes = await file.length();
       final fileSizeMb = fileSizeBytes / (1024 * 1024);
-      
+
       AppLogger.info('📄 PDF size: ${fileSizeMb.toStringAsFixed(1)}MB');
-      
+
       if (fileSizeMb > AppConstants.maxPdfSizeMb) {
-        final error = 'PDF too large: ${fileSizeMb.toStringAsFixed(1)}MB. '
+        final error =
+            'PDF too large: ${fileSizeMb.toStringAsFixed(1)}MB. '
             'Max allowed: ${AppConstants.maxPdfSizeMb}MB';
         AppLogger.error('❌ $error');
-        yield ExtractionProgress(
-          progress: 0,
-          error: error,
-        );
+        yield ExtractionProgress(progress: 0, error: error);
         return;
       }
 
       // Load PDF document
-      yield ExtractionProgress(
-        progress: 0.1,
-        currentPage: 'Loading PDF...',
-      );
+      yield ExtractionProgress(progress: 0.1, currentPage: 'Loading PDF...');
 
       final bytes = await file.readAsBytes();
       final PdfDocument document = PdfDocument(inputBytes: bytes);
 
       final pageCount = document.pages.count;
-      
+
       AppLogger.info('📄 PDF pages: $pageCount');
-      
+
       // Validate page count
       if (pageCount > AppConstants.maxPdfPages) {
-        final error = 'PDF too long: $pageCount pages. '
+        final error =
+            'PDF too long: $pageCount pages. '
             'Max allowed: ${AppConstants.maxPdfPages} pages';
         AppLogger.error('❌ $error');
         document.dispose();
-        yield ExtractionProgress(
-          progress: 0,
-          error: error,
-        );
+        yield ExtractionProgress(progress: 0, error: error);
         return;
       }
-      
+
       // STREAMING EXTRACTION: Process in batches, yield incrementally
       final batchSize = AppConstants.pdfPageBatchSize;
       final buffer = StringBuffer();
       bool hasAnyText = false;
-      
-      for (var batchStart = 0; batchStart < pageCount; batchStart += batchSize) {
-        final batchEnd = (batchStart + batchSize < pageCount) 
-            ? batchStart + batchSize 
+
+      for (
+        var batchStart = 0;
+        batchStart < pageCount;
+        batchStart += batchSize
+      ) {
+        final batchEnd = (batchStart + batchSize < pageCount)
+            ? batchStart + batchSize
             : pageCount;
-        
+
         AppLogger.debug('📄 Extracting pages ${batchStart + 1}-$batchEnd');
         buffer.clear();
-        
+
         // Extract batch of pages with layout information
         for (var i = batchStart; i < batchEnd; i++) {
           // Extract text with layout (preserves paragraph structure)
@@ -125,22 +122,37 @@ class PdfInputAdapter implements InputSource {
 
           if (textLines.isNotEmpty) {
             // Group text lines into paragraphs based on vertical spacing
+            var currentParagraph = StringBuffer();
             var lastY = 0.0;
+
             for (final line in textLines) {
               final text = line.text.trim();
               if (text.isEmpty) continue;
-              
-              // Detect paragraph break (significant vertical gap)
+
+              // Detect paragraph break (significant vertical gap > 15pt)
               if (lastY > 0 && (line.bounds.top - lastY) > 15) {
-                buffer.writeln(); // Extra newline for paragraph break
+                // Save current paragraph
+                if (currentParagraph.isNotEmpty) {
+                  buffer.writeln(currentParagraph.toString().trim());
+                  buffer.writeln(); // Paragraph separator (double newline)
+                  currentParagraph.clear();
+                }
               }
-              
-              buffer.writeln(text);
+
+              // Add line to current paragraph (space between lines in same paragraph)
+              if (currentParagraph.isNotEmpty) {
+                currentParagraph.write(' ');
+              }
+              currentParagraph.write(text);
               lastY = line.bounds.bottom;
               hasAnyText = true;
             }
-            
-            buffer.writeln(); // Page separator
+
+            // Save final paragraph
+            if (currentParagraph.isNotEmpty) {
+              buffer.writeln(currentParagraph.toString().trim());
+              buffer.writeln(); // Page separator
+            }
           }
 
           // Report progress
@@ -150,7 +162,7 @@ class PdfInputAdapter implements InputSource {
             currentPage: 'Page ${i + 1}/$pageCount',
           );
         }
-        
+
         // Yield batch text immediately, then clear buffer
         if (buffer.isNotEmpty) {
           yield ExtractionProgress(
@@ -226,4 +238,3 @@ class PdfInputAdapter implements InputSource {
     }
   }
 }
-

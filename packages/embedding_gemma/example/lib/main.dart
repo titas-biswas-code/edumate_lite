@@ -37,7 +37,12 @@ class _EmbeddingDemoState extends State<EmbeddingDemo> {
   String _status = 'Not installed';
   double _installProgress = 0.0;
   final TextEditingController _textController = TextEditingController();
+  final TextEditingController _tokenCountController = TextEditingController();
   List<double>? _lastEmbedding;
+  int? _tokenCount;
+  int? _tokenCountWithoutPrompt;
+  int? _promptOverhead;
+  int? _charCount;
 
   @override
   void initState() {
@@ -49,6 +54,7 @@ class _EmbeddingDemoState extends State<EmbeddingDemo> {
   void dispose() {
     _embedder?.dispose();
     _textController.dispose();
+    _tokenCountController.dispose();
     super.dispose();
   }
 
@@ -239,6 +245,39 @@ class _EmbeddingDemoState extends State<EmbeddingDemo> {
     }
   }
 
+  Future<void> _countTokensForInput() async {
+    if (_embedder == null || _tokenCountController.text.isEmpty) return;
+
+    setState(() {
+      _status = 'Counting tokens...';
+    });
+
+    try {
+      final text = _tokenCountController.text;
+      final count = await _embedder!.countTokens(text);
+      final countWithoutPrompt = await _embedder!.countTokens(text, withPrompt: false);
+      
+      setState(() {
+        _charCount = text.length;
+        _tokenCount = count;
+        _tokenCountWithoutPrompt = countWithoutPrompt;
+        _promptOverhead = count - countWithoutPrompt;
+        _status = 'Token count: $count (with prompt)';
+      });
+
+      print('Text length: ${text.length} chars');
+      print('Tokens (with prompt): $count');
+      print('Tokens (without prompt): $countWithoutPrompt');
+      print('Prompt overhead: ${count - countWithoutPrompt}');
+      print('Ratio: ${(text.length / count).toStringAsFixed(2)} chars/token');
+    } catch (e, stack) {
+      print('Token count failed: $e');
+      setState(() {
+        _status = 'Token count error: $e';
+      });
+    }
+  }
+
   Future<void> _testTokenCount() async {
     if (_embedder == null) return;
 
@@ -385,6 +424,110 @@ class _EmbeddingDemoState extends State<EmbeddingDemo> {
                       ),
                     ),
                   ],
+                ),
+                
+                // Token counting section
+                const SizedBox(height: 24),
+                const Divider(),
+                const SizedBox(height: 8),
+                Text(
+                  'Token Counter (ACTUAL SentencePiece)',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _tokenCountController,
+                  decoration: const InputDecoration(
+                    labelText: 'Enter text to count tokens',
+                    border: OutlineInputBorder(),
+                    hintText: 'Paste your text here...',
+                  ),
+                  maxLines: 5,
+                ),
+                const SizedBox(height: 8),
+                ElevatedButton.icon(
+                  onPressed: _countTokensForInput,
+                  icon: const Icon(Icons.calculate),
+                  label: const Text('Count Tokens'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                  ),
+                ),
+              ],
+
+              // Token count results
+              if (_tokenCount != null) ...[
+                const SizedBox(height: 16),
+                Card(
+                  color: Colors.green.shade50,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Token Count Results:',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Divider(),
+                        Text('• Characters: $_charCount'),
+                        Text('• Tokens (with prompt): $_tokenCount'),
+                        Text('• Tokens (without prompt): $_tokenCountWithoutPrompt'),
+                        Text('• Prompt overhead: $_promptOverhead tokens'),
+                        Text('• Ratio: ${(_charCount! / _tokenCount!).toStringAsFixed(2)} chars/token'),
+                        const SizedBox(height: 8),
+                        if (_tokenCount! > 2000)
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            color: Colors.red.shade100,
+                            child: Row(
+                              children: [
+                                Icon(Icons.warning, color: Colors.red.shade700, size: 20),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Exceeds 2048 limit! Need to chunk.',
+                                    style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        else if (_tokenCount! > 1800)
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            color: Colors.orange.shade100,
+                            child: Row(
+                              children: [
+                                Icon(Icons.info, color: Colors.orange.shade700, size: 20),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Close to 2048 limit',
+                                  style: TextStyle(color: Colors.orange.shade700),
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            color: Colors.green.shade100,
+                            child: Row(
+                              children: [
+                                Icon(Icons.check_circle, color: Colors.green.shade700, size: 20),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Within 2048 token limit ✓',
+                                  style: TextStyle(color: Colors.green.shade700),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
 

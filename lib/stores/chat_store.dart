@@ -20,7 +20,13 @@ abstract class ChatStoreBase with Store {
   ObservableList<Message> messages = ObservableList<Message>();
 
   @observable
+  ObservableList<Conversation> conversations = ObservableList<Conversation>();
+
+  @observable
   bool isLoading = false;
+
+  @observable
+  bool isLoadingConversations = false;
 
   @observable
   String? error;
@@ -180,6 +186,40 @@ abstract class ChatStoreBase with Store {
   @action
   void setSelectedMaterials(List<int>? materialIds) {
     selectedMaterialIds = materialIds;
+  }
+
+  @action
+  Future<void> loadConversations() async {
+    isLoadingConversations = true;
+    error = null;
+
+    final result = await _conversationManager.getAllConversations();
+
+    result.fold(
+      (failure) {
+        error = failure.message;
+        isLoadingConversations = false;
+      },
+      (convList) {
+        conversations = ObservableList.of(convList);
+        isLoadingConversations = false;
+      },
+    );
+  }
+
+  @action
+  Future<void> deleteConversation(int conversationId) async {
+    final result = await _conversationManager.deleteConversation(conversationId);
+
+    result.fold(
+      (failure) => error = failure.message,
+      (_) {
+        conversations.removeWhere((c) => c.id == conversationId);
+        if (currentConversation?.id == conversationId) {
+          clearConversation();
+        }
+      },
+    );
   }
 }
 

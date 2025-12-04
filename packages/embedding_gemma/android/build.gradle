@@ -54,6 +54,9 @@ dependencies {
     implementation 'com.google.guava:guava:33.3.1-android'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.9.0'
     
+    // TFLite Task Text for SentencePiece tokenization
+    implementation 'org.tensorflow:tensorflow-lite-task-text:0.4.4'
+    
     // Protobuf (required by RAG library)
     implementation 'com.google.protobuf:protobuf-javalite:3.25.1'
     

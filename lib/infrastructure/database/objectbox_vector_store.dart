@@ -119,5 +119,14 @@ class ObjectBoxVectorStore implements VectorStore {
       throw app_exceptions.StorageException('Failed to get chunks by material: $e');
     }
   }
+
+  /// Get all chunks (for dev tools)
+  Future<List<Chunk>> getAllChunks() async {
+    try {
+      return _chunkBox.getAll();
+    } catch (e) {
+      throw app_exceptions.StorageException('Failed to get all chunks: $e');
+    }
+  }
 }
 

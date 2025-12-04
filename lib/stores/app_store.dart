@@ -18,6 +18,9 @@ abstract class AppStoreBase with Store {
   @observable
   bool isInferenceModelReady = false;
 
+  @observable
+  bool devModeEnabled = false;
+
   @action
   void setThemeMode(ThemeMode mode) {
     themeMode = mode;
@@ -36,6 +39,11 @@ abstract class AppStoreBase with Store {
   @action
   void setInferenceModelReady(bool value) {
     isInferenceModelReady = value;
+  }
+
+  @action
+  void setDevModeEnabled(bool value) {
+    devModeEnabled = value;
   }
 
   @computed

@@ -45,6 +45,24 @@ mixin _$ChatStore on ChatStoreBase, Store {
     });
   }
 
+  late final _$conversationsAtom = Atom(
+    name: 'ChatStoreBase.conversations',
+    context: context,
+  );
+
+  @override
+  ObservableList<Conversation> get conversations {
+    _$conversationsAtom.reportRead();
+    return super.conversations;
+  }
+
+  @override
+  set conversations(ObservableList<Conversation> value) {
+    _$conversationsAtom.reportWrite(value, super.conversations, () {
+      super.conversations = value;
+    });
+  }
+
   late final _$isLoadingAtom = Atom(
     name: 'ChatStoreBase.isLoading',
     context: context,
@@ -61,6 +79,28 @@ mixin _$ChatStore on ChatStoreBase, Store {
     _$isLoadingAtom.reportWrite(value, super.isLoading, () {
       super.isLoading = value;
     });
+  }
+
+  late final _$isLoadingConversationsAtom = Atom(
+    name: 'ChatStoreBase.isLoadingConversations',
+    context: context,
+  );
+
+  @override
+  bool get isLoadingConversations {
+    _$isLoadingConversationsAtom.reportRead();
+    return super.isLoadingConversations;
+  }
+
+  @override
+  set isLoadingConversations(bool value) {
+    _$isLoadingConversationsAtom.reportWrite(
+      value,
+      super.isLoadingConversations,
+      () {
+        super.isLoadingConversations = value;
+      },
+    );
   }
 
   late final _$errorAtom = Atom(name: 'ChatStoreBase.error', context: context);
@@ -148,6 +188,28 @@ mixin _$ChatStore on ChatStoreBase, Store {
     return _$sendMessageAsyncAction.run(() => super.sendMessage(content));
   }
 
+  late final _$loadConversationsAsyncAction = AsyncAction(
+    'ChatStoreBase.loadConversations',
+    context: context,
+  );
+
+  @override
+  Future<void> loadConversations() {
+    return _$loadConversationsAsyncAction.run(() => super.loadConversations());
+  }
+
+  late final _$deleteConversationAsyncAction = AsyncAction(
+    'ChatStoreBase.deleteConversation',
+    context: context,
+  );
+
+  @override
+  Future<void> deleteConversation(int conversationId) {
+    return _$deleteConversationAsyncAction.run(
+      () => super.deleteConversation(conversationId),
+    );
+  }
+
   late final _$ChatStoreBaseActionController = ActionController(
     name: 'ChatStoreBase',
     context: context,
@@ -194,7 +256,9 @@ mixin _$ChatStore on ChatStoreBase, Store {
     return '''
 currentConversation: ${currentConversation},
 messages: ${messages},
+conversations: ${conversations},
 isLoading: ${isLoading},
+isLoadingConversations: ${isLoadingConversations},
 error: ${error},
 currentResponse: ${currentResponse},
 selectedMaterialIds: ${selectedMaterialIds}
