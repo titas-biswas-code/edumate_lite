@@ -6,6 +6,7 @@ import '../entities/message.dart';
 import '../../core/errors/failures.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/token_estimator.dart';
+import '../../core/prompts/prompt_templates.dart';
 
 /// RAG (Retrieval-Augmented Generation) Engine
 /// Orchestrates retrieval and generation for Q&A
@@ -95,6 +96,7 @@ class RagEngine {
     List<int> materialIds, {
     int questionCount = 5,
     String? topic,
+    String? difficulty,
   }) async {
     try {
       if (materialIds.isEmpty) {
@@ -120,16 +122,18 @@ class RagEngine {
       // Build context from chunks
       final context = _buildContext(allChunks.take(10).toList());
 
-      // Generate quiz
-      final quizPrompt = _buildQuizPrompt(
-        context: context,
-        questionCount: questionCount,
-        topic: topic,
-      );
+      // Use Quiz prompt template
+      final quizTemplate = PromptFactory.get(PromptType.quiz);
+      final formattedContext = quizTemplate.formatContext(context);
+      final quizPrompt = quizTemplate.buildPrompt({
+        'questionCount': questionCount,
+        'topic': topic,
+        'difficulty': difficulty ?? 'medium',
+      });
 
       final responseStream = inferenceProvider.generate(
-        systemPrompt: _getSystemPrompt(),
-        context: context,
+        systemPrompt: quizTemplate.systemPrompt,
+        context: formattedContext,
         query: quizPrompt,
       );
 
@@ -185,11 +189,16 @@ class RagEngine {
       );
     }
 
+    // Use QA prompt template for better quality responses
+    final qaTemplate = PromptFactory.get(PromptType.qa);
+    final formattedContext = qaTemplate.formatContext(context);
+    final userPrompt = qaTemplate.buildPrompt({'query': query});
+
     // Stream the actual response
     final responseStream = inferenceProvider.generate(
-      systemPrompt: _getSystemPrompt(),
-      context: context,
-      query: query,
+      systemPrompt: qaTemplate.systemPrompt,
+      context: formattedContext,
+      query: userPrompt,
       conversationHistory: conversationHistory,
     );
 
@@ -255,44 +264,100 @@ Would you like to:
     );
   }
 
-  /// Get system prompt
-  String _getSystemPrompt() {
-    return '''You are EduMate, a helpful educational assistant for students in grades 5-10.
+  /// Summarize content from materials
+  Future<Either<Failure, Stream<RagResponse>>> summarize(
+    List<int> materialIds, {
+    String style = 'bullet',
+    int maxPoints = 5,
+  }) async {
+    try {
+      if (materialIds.isEmpty) {
+        return Left(ProcessingFailure('No materials specified'));
+      }
 
-Your role is to:
-1. Answer questions clearly using simple language appropriate for middle school students
-2. Explain concepts step-by-step with examples and analogies
-3. Help with homework and practice problems
-4. Create quizzes and practice questions when asked
-5. Always be encouraging and supportive
+      if (!inferenceProvider.isReady) {
+        return Left(ModelFailure('Inference provider not ready'));
+      }
 
-Guidelines:
-- Use ONLY the provided context to answer questions
-- If you don't have enough information, say so honestly
-- For math problems, show all steps clearly
-- Use bullet points for lists
-- Be concise but thorough''';
+      // Retrieve chunks from materials
+      final allChunks = <ScoredChunk>[];
+      for (final materialId in materialIds) {
+        final chunks = await vectorStore.getByMaterial(materialId);
+        allChunks.addAll(chunks.map((c) => ScoredChunk(chunk: c, score: 1.0)));
+      }
+
+      if (allChunks.isEmpty) {
+        return Left(ProcessingFailure('No content found in materials'));
+      }
+
+      final context = _buildContext(allChunks.take(10).toList());
+
+      // Use Summary prompt template
+      final summaryTemplate = PromptFactory.get(PromptType.summary);
+      final formattedContext = summaryTemplate.formatContext(context);
+      final summaryPrompt = summaryTemplate.buildPrompt({
+        'style': style,
+        'maxPoints': maxPoints,
+      });
+
+      final responseStream = inferenceProvider.generate(
+        systemPrompt: summaryTemplate.systemPrompt,
+        context: formattedContext,
+        query: summaryPrompt,
+      );
+
+      return Right(_wrapInRagResponse(responseStream, allChunks.take(10).toList()));
+    } catch (e) {
+      return Left(ProcessingFailure('Summarization failed: $e'));
+    }
   }
 
-  /// Build quiz generation prompt
-  String _buildQuizPrompt({
-    required String context,
-    required int questionCount,
-    String? topic,
-  }) {
-    final topicText = topic != null ? 'focusing on: $topic' : '';
-    return '''Create a quiz with $questionCount questions based on the material above $topicText.
+  /// Explain a concept using materials
+  Future<Either<Failure, Stream<RagResponse>>> explain(
+    String concept, {
+    List<int>? materialIds,
+  }) async {
+    try {
+      if (!embeddingProvider.isReady) {
+        return Left(ModelFailure('Embedding provider not ready'));
+      }
 
-Format each question as:
-Q1: [Question]
-A) [Option A]
-B) [Option B]
-C) [Option C]
-D) [Option D]
-Correct: [Letter]
-Explanation: [Brief explanation]
+      if (!inferenceProvider.isReady) {
+        return Left(ModelFailure('Inference provider not ready'));
+      }
 
-Make questions appropriate for middle school students.''';
+      // Generate embedding for the concept
+      final queryEmbedding = await embeddingProvider.embedQuery(concept);
+
+      // Retrieve relevant chunks
+      final retrievedChunks = await vectorStore.search(
+        queryEmbedding,
+        topK: retrievalTopK,
+        threshold: similarityThreshold,
+        materialIds: materialIds,
+      );
+
+      if (retrievedChunks.isEmpty) {
+        return Right(_noContextFoundStream(concept));
+      }
+
+      final context = _buildContext(retrievedChunks);
+
+      // Use Explain prompt template
+      final explainTemplate = PromptFactory.get(PromptType.explain);
+      final formattedContext = explainTemplate.formatContext(context);
+      final explainPrompt = explainTemplate.buildPrompt({'concept': concept});
+
+      final responseStream = inferenceProvider.generate(
+        systemPrompt: explainTemplate.systemPrompt,
+        context: formattedContext,
+        query: explainPrompt,
+      );
+
+      return Right(_wrapInRagResponse(responseStream, retrievedChunks));
+    } catch (e) {
+      return Left(ProcessingFailure('Explanation failed: $e'));
+    }
   }
 }
 

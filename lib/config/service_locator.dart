@@ -8,6 +8,7 @@ import '../infrastructure/input/pdf_input_adapter.dart';
 import '../infrastructure/input/image_input_adapter.dart';
 import '../infrastructure/input/camera_input_adapter.dart';
 import '../infrastructure/input/text_input_adapter.dart';
+import '../domain/interfaces/inference_provider.dart';
 import '../domain/services/rag_engine.dart';
 import '../domain/services/conversation_manager.dart';
 import '../domain/services/material_processor.dart';
@@ -38,6 +39,11 @@ Future<void> setupServiceLocator() async {
 
   getIt.registerLazySingleton<GemmaInferenceProvider>(
     () => GemmaInferenceProvider(),
+  );
+
+  // Register interface for InferenceProvider
+  getIt.registerLazySingleton<InferenceProvider>(
+    () => getIt<GemmaInferenceProvider>(),
   );
 
   // Infrastructure - Chunking (requires embedding provider for token counting)

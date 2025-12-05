@@ -210,6 +210,18 @@ mixin _$ChatStore on ChatStoreBase, Store {
     );
   }
 
+  late final _$regenerateLastResponseAsyncAction = AsyncAction(
+    'ChatStoreBase.regenerateLastResponse',
+    context: context,
+  );
+
+  @override
+  Future<void> regenerateLastResponse() {
+    return _$regenerateLastResponseAsyncAction.run(
+      () => super.regenerateLastResponse(),
+    );
+  }
+
   late final _$ChatStoreBaseActionController = ActionController(
     name: 'ChatStoreBase',
     context: context,
@@ -222,6 +234,18 @@ mixin _$ChatStore on ChatStoreBase, Store {
     );
     try {
       return super.clearError();
+    } finally {
+      _$ChatStoreBaseActionController.endAction(_$actionInfo);
+    }
+  }
+
+  @override
+  void prepareNewChat() {
+    final _$actionInfo = _$ChatStoreBaseActionController.startAction(
+      name: 'ChatStoreBase.prepareNewChat',
+    );
+    try {
+      return super.prepareNewChat();
     } finally {
       _$ChatStoreBaseActionController.endAction(_$actionInfo);
     }

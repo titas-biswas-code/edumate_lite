@@ -31,9 +31,9 @@ class _ChatScreenState extends State<ChatScreen> {
     if (widget.conversationId != null) {
       // Load existing conversation
       await chatStore.loadConversation(widget.conversationId!);
-    } else if (chatStore.currentConversation == null) {
-      // Start a new conversation
-      await chatStore.startNewConversation('New Chat');
+    } else {
+      // Prepare for new chat - don't create DB entry yet (lazy creation)
+      chatStore.prepareNewChat();
     }
   }
 
@@ -104,7 +104,14 @@ class _ChatScreenState extends State<ChatScreen> {
                   itemBuilder: (context, index) {
                     if (index < chatStore.messages.length) {
                       final message = chatStore.messages[index];
-                      return MessageBubble(message: message);
+                      final isLastAssistant = message.role == 'assistant' &&
+                          index == chatStore.messages.length - 1;
+                      return MessageBubble(
+                        message: message,
+                        onRegenerate: isLastAssistant
+                            ? () => chatStore.regenerateLastResponse()
+                            : null,
+                      );
                     } else {
                       // Show current streaming response
                       return MessageBubble.streaming(
@@ -173,16 +180,24 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildEmptyState() {
+    final colorScheme = Theme.of(context).colorScheme;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.chat_bubble_outline,
-            size: 64,
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: colorScheme.primaryContainer.withOpacity(0.3),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.chat_bubble_outline_rounded,
+              size: 64,
+              color: colorScheme.primary,
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 24),
           Text(
             'Start a conversation',
             style: Theme.of(context).textTheme.titleLarge,
@@ -191,7 +206,7 @@ class _ChatScreenState extends State<ChatScreen> {
           Text(
             'Ask questions about your study materials',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Theme.of(context).textTheme.bodySmall?.color,
+              color: colorScheme.onSurfaceVariant,
             ),
           ),
         ],

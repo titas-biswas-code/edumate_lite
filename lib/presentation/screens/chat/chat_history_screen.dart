@@ -113,7 +113,8 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
             )
           else
             IconButton(
-              icon: const Icon(Icons.add),
+              icon: const Icon(Icons.add_comment_rounded),
+              tooltip: 'New Chat',
               onPressed: () => _openChat(null),
             ),
         ],
@@ -175,7 +176,7 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                Icons.chat_bubble_outline,
+                Icons.chat_bubble_outline_rounded,
                 size: 64,
                 color: colorScheme.primary,
               ),
@@ -198,7 +199,7 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
             const SizedBox(height: 24),
             FilledButton.icon(
               onPressed: () => _openChat(null),
-              icon: const Icon(Icons.add),
+              icon: const Icon(Icons.add_comment_rounded),
               label: const Text('Start New Chat'),
             ),
           ],
@@ -256,7 +257,7 @@ class _ConversationCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
-                  Icons.chat_bubble_outline,
+                  Icons.chat_bubble_outline_rounded,
                   color: colorScheme.primary,
                 ),
               ),

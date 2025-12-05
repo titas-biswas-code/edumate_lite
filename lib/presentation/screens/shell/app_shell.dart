@@ -110,7 +110,7 @@ class _AppShellState extends State<AppShell> {
           items: const [
             TabItem(icon: Icons.home_rounded, title: 'Home'),
             TabItem(icon: Icons.history_rounded, title: 'History'),
-            TabItem(icon: Icons.chat_bubble_rounded, title: 'Chat'),  // Center - prominent
+            TabItem(icon: Icons.add_comment_rounded, title: 'New Chat'),  // Center - new chat
             TabItem(icon: Icons.library_books_rounded, title: 'Library'),
             TabItem(icon: Icons.settings_rounded, title: 'Settings'),
           ],

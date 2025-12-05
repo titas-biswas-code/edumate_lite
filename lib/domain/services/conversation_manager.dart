@@ -263,5 +263,18 @@ class ConversationManager {
       return Left(StorageFailure('Failed to update conversation: $e'));
     }
   }
+
+  /// Delete a single message by ID
+  Future<Either<Failure, Unit>> deleteMessage(int messageId) async {
+    try {
+      final removed = messageBox.remove(messageId);
+      if (!removed) {
+        return Left(StorageFailure('Message not found'));
+      }
+      return const Right(unit);
+    } catch (e) {
+      return Left(StorageFailure('Failed to delete message: $e'));
+    }
+  }
 }
 

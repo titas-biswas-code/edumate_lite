@@ -1,8 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../../config/service_locator.dart';
 import '../../../stores/material_store.dart';
+import '../../../stores/chat_store.dart';
 import '../../../infrastructure/database/objectbox_vector_store.dart';
 import '../../../domain/entities/chunk.dart';
 
@@ -24,11 +27,16 @@ class _DevToolsScreenState extends State<DevToolsScreen>
   String _filterQuery = '';
   int? _selectedMaterialId;
 
+  // Storage info
+  Map<String, int> _storageInfo = {};
+  bool _isLoadingStorage = false;
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _loadChunks();
+    _loadStorageInfo();
   }
 
   @override
@@ -48,6 +56,100 @@ class _DevToolsScreenState extends State<DevToolsScreen>
     } catch (e) {
       setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _loadStorageInfo() async {
+    setState(() => _isLoadingStorage = true);
+    try {
+      final cacheDir = await getApplicationCacheDirectory();
+      
+      final storage = <String, int>{};
+      
+      // ML Model Cache (the big one - serialized OpenCL kernels)
+      int modelCacheSize = 0;
+      if (cacheDir.existsSync()) {
+        await for (final entity in cacheDir.list(recursive: false)) {
+          if (entity is File) {
+            final name = entity.path.split('/').last;
+            // MediaPipe/TFLite model cache files
+            if (name.contains('gemma') || name.endsWith('.bin')) {
+              modelCacheSize += await entity.length();
+            }
+          }
+        }
+      }
+      if (modelCacheSize > 0) {
+        storage['ML Model Cache'] = modelCacheSize;
+      }
+      
+      // Other cache (non-model files)
+      final totalCacheSize = await _getDirSize(cacheDir);
+      final otherCacheSize = totalCacheSize - modelCacheSize;
+      if (otherCacheSize > 0) {
+        storage['Other Cache'] = otherCacheSize;
+      }
+      
+      // Database stats from ObjectBox
+      final dbStats = await _getDbStorageStats();
+      storage.addAll(dbStats);
+      
+      // Calculate total
+      int totalSize = 0;
+      storage.forEach((key, value) => totalSize += value);
+      storage['_total'] = totalSize;
+      
+      setState(() {
+        _storageInfo = storage;
+        _isLoadingStorage = false;
+      });
+    } catch (e) {
+      debugPrint('Storage error: $e');
+      setState(() => _isLoadingStorage = false);
+    }
+  }
+
+  Future<Map<String, int>> _getDbStorageStats() async {
+    final stats = <String, int>{};
+    try {
+      // Estimate DB storage based on data
+      // Chunks: content + embedding (768 floats * 4 bytes = 3KB per chunk)
+      final chunkCount = _chunks.length;
+      final chunkContentSize = _chunks.fold<int>(0, (sum, c) => sum + c.content.length);
+      final embeddingSize = chunkCount * 768 * 4; // 768 dims * 4 bytes
+      stats['Chunks Data'] = chunkContentSize + embeddingSize;
+      
+      // Materials
+      final materialCount = materialStore.materials.length;
+      stats['Materials Data'] = materialCount * 500; // ~500 bytes per material record
+      
+      // Conversations & Messages (estimate)
+      final chatStore = getIt<ChatStore>();
+      final convCount = chatStore.conversations.length;
+      final msgEstimate = convCount * 10 * 500; // ~10 msgs * 500 bytes avg
+      if (msgEstimate > 0) {
+        stats['Chat History'] = msgEstimate;
+      }
+    } catch (_) {}
+    return stats;
+  }
+
+  Future<int> _getDirSize(Directory dir) async {
+    int totalSize = 0;
+    try {
+      await for (final entity in dir.list(recursive: true, followLinks: false)) {
+        if (entity is File) {
+          totalSize += await entity.length();
+        }
+      }
+    } catch (_) {}
+    return totalSize;
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
   List<Chunk> get filteredChunks {
@@ -79,13 +181,17 @@ class _DevToolsScreenState extends State<DevToolsScreen>
           controller: _tabController,
           tabs: const [
             Tab(text: 'Chunks', icon: Icon(Icons.data_array)),
+            Tab(text: 'Storage', icon: Icon(Icons.storage)),
             Tab(text: 'Processing', icon: Icon(Icons.analytics)),
           ],
         ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadChunks,
+            onPressed: () {
+              _loadChunks();
+              _loadStorageInfo();
+            },
           ),
         ],
       ),
@@ -93,6 +199,7 @@ class _DevToolsScreenState extends State<DevToolsScreen>
         controller: _tabController,
         children: [
           _buildChunksTab(colorScheme),
+          _buildStorageTab(colorScheme),
           _buildProcessingTab(colorScheme),
         ],
       ),
@@ -219,6 +326,174 @@ class _DevToolsScreenState extends State<DevToolsScreen>
     );
   }
 
+  Widget _buildStorageTab(ColorScheme colorScheme) {
+    if (_isLoadingStorage) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final totalSize = _storageInfo['_total'] ?? 0;
+    
+    // Separate into categories
+    final cacheItems = _storageInfo.entries
+        .where((e) => e.key.contains('Cache') && !e.key.startsWith('_'))
+        .toList();
+    final dbItems = _storageInfo.entries
+        .where((e) => e.key.contains('Data') || e.key.contains('History'))
+        .toList();
+    
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        // Total storage card
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                Icon(
+                  Icons.storage,
+                  size: 48,
+                  color: colorScheme.primary,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  _formatBytes(totalSize),
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: colorScheme.primary,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Total App Storage',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        
+        const SizedBox(height: 16),
+        
+        // Cache section
+        if (cacheItems.isNotEmpty) ...[
+          Text(
+            'Cache & Models',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          const SizedBox(height: 8),
+          ...cacheItems.map(
+            (entry) => _StorageItem(
+              icon: _getStorageIcon(entry.key),
+              title: entry.key,
+              size: _formatBytes(entry.value),
+              percentage: totalSize > 0 ? (entry.value / totalSize * 100).clamp(0, 100) : 0,
+              color: _getStorageColor(entry.key, colorScheme),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+        
+        // Database section
+        if (dbItems.isNotEmpty) ...[
+          Text(
+            'Database',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          const SizedBox(height: 8),
+          ...dbItems.map(
+            (entry) => _StorageItem(
+              icon: _getStorageIcon(entry.key),
+              title: entry.key,
+              size: _formatBytes(entry.value),
+              percentage: totalSize > 0 ? (entry.value / totalSize * 100).clamp(0, 100) : 0,
+              color: _getStorageColor(entry.key, colorScheme),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+        
+        // Data Stats
+        Text(
+          'Data Stats',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+        ),
+        const SizedBox(height: 8),
+        
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                _StatRow(label: 'Total Chunks', value: '${_chunks.length}'),
+                _StatRow(label: 'Materials', value: '${materialStore.materials.length}'),
+                _StatRow(
+                  label: 'Avg Chunk Size',
+                  value: _chunks.isEmpty
+                      ? 'N/A'
+                      : '${(_chunks.map((c) => c.content.length).reduce((a, b) => a + b) / _chunks.length).toStringAsFixed(0)} chars',
+                ),
+                _StatRow(
+                  label: 'Embedding Size/Chunk',
+                  value: '~3 KB (768 dims)',
+                ),
+                Builder(builder: (_) {
+                  final chatStore = getIt<ChatStore>();
+                  return _StatRow(
+                    label: 'Conversations',
+                    value: '${chatStore.conversations.length}',
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  IconData _getStorageIcon(String key) {
+    switch (key) {
+      case 'ML Model Cache':
+        return Icons.psychology;
+      case 'Other Cache':
+        return Icons.cached;
+      case 'Chunks Data':
+        return Icons.data_array;
+      case 'Materials Data':
+        return Icons.library_books;
+      case 'Chat History':
+        return Icons.chat;
+      default:
+        return Icons.folder;
+    }
+  }
+
+  Color _getStorageColor(String key, ColorScheme colorScheme) {
+    switch (key) {
+      case 'ML Model Cache':
+        return Colors.purple;
+      case 'Other Cache':
+        return Colors.orange;
+      case 'Chunks Data':
+        return Colors.blue;
+      case 'Materials Data':
+        return Colors.teal;
+      case 'Chat History':
+        return Colors.green;
+      default:
+        return colorScheme.primary;
+    }
+  }
+
   Widget _buildProcessingTab(ColorScheme colorScheme) {
     return Observer(
       builder: (_) {
@@ -328,6 +603,17 @@ class _ChunkCardState extends State<_ChunkCard> {
     } catch (_) {
       return {};
     }
+  }
+
+  String _formatChunkStorage(Chunk chunk) {
+    // Content size + embedding size (768 floats * 4 bytes = 3072 bytes)
+    final contentSize = chunk.content.length;
+    final embeddingSize = chunk.embedding != null ? 768 * 4 : 0;
+    final metadataSize = chunk.metadataJson?.length ?? 0;
+    final totalBytes = contentSize + embeddingSize + metadataSize;
+    
+    if (totalBytes < 1024) return '$totalBytes B';
+    return '${(totalBytes / 1024).toStringAsFixed(1)} KB';
   }
 
   @override
@@ -449,6 +735,11 @@ class _ChunkCardState extends State<_ChunkCard> {
                       label: 'Has Embedding',
                       value: chunk.embedding != null ? 'Yes' : 'No',
                     ),
+                    // Storage estimate
+                    _MetadataChip(
+                      label: 'Storage',
+                      value: _formatChunkStorage(chunk),
+                    ),
                   ],
                 ),
               ],
@@ -524,6 +815,106 @@ class _DetailRow extends StatelessWidget {
                     color: isError ? Colors.red : null,
                   ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StorageItem extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String size;
+  final double percentage;
+  final Color color;
+
+  const _StorageItem({
+    required this.icon,
+    required this.title,
+    required this.size,
+    required this.percentage,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: color, size: 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w500,
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  LinearProgressIndicator(
+                    value: percentage / 100,
+                    backgroundColor: color.withOpacity(0.1),
+                    valueColor: AlwaysStoppedAnimation(color),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  size,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                Text(
+                  '${percentage.toStringAsFixed(1)}%',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _StatRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label),
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.bold),
           ),
         ],
       ),
